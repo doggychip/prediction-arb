@@ -1,0 +1,27 @@
+{
+  "name": "prediction-arb",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "fetch-markets": "tsx scripts/fetch-all-markets.ts",
+    "generate-key": "tsx scripts/generate-rsa-key.ts"
+  },
+  "dependencies": {
+    "@polymarket/clob-client": "latest",
+    "better-sqlite3": "^11.0.0",
+    "dotenv": "^16.4.0",
+    "ethers": "^5.8.0",
+    "kalshi-typescript": "^2.1.1",
+    "winston": "^3.14.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
