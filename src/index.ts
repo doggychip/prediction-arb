@@ -73,51 +73,14 @@ async function main() {
 
   let kalshiMarkets: KalshiMarket[] = [];
   try {
-    const allKalshi = await kalshiClient.getAllMarkets({ status: 'open' });
-    logger.info(`Fetched ${allKalshi.length} total Kalshi markets`);
+    // Kalshi API: filter=open returns status='active' in response; mve_filter=exclude skips parlays server-side
+    const allKalshi = await kalshiClient.getAllMarkets({ status: 'open', mve_filter: 'exclude' });
+    logger.info(`Fetched ${allKalshi.length} Kalshi markets (open, non-MVE)`);
 
-    // Debug: dump first 3 market objects to see actual field names
-    for (const sample of allKalshi.slice(0, 3)) {
-      const raw = sample as any;
-      logger.info(`[DEBUG] Sample market: ${JSON.stringify({
-        ticker: raw.ticker,
-        title: raw.title,
-        status: raw.status,
-        // Dollar string fields (expected)
-        yes_bid_dollars: raw.yes_bid_dollars,
-        yes_ask_dollars: raw.yes_ask_dollars,
-        volume_fp: raw.volume_fp,
-        volume_24h_fp: raw.volume_24h_fp,
-        mve_collection_ticker: raw.mve_collection_ticker,
-        // Old integer fields (might still exist?)
-        yes_bid: raw.yes_bid,
-        yes_ask: raw.yes_ask,
-        volume: raw.volume,
-        volume_24h: raw.volume_24h,
-        // Check all keys
-        _keys: Object.keys(raw).filter(k => k.includes('bid') || k.includes('ask') || k.includes('vol') || k.includes('mve')),
-      })}`);
-    }
-
-    // Count rejections by reason for diagnostics
-    let rNotOpen = 0, rMve = 0, rVol = 0, rPrice = 0, rPass = 0;
-    for (const m of allKalshi) {
-      if (m.status !== 'open') { rNotOpen++; continue; }
-      if (m.mve_collection_ticker) { rMve++; continue; }
-      const vol = parseFloat(m.volume_fp || '0');
-      const vol24h = parseFloat(m.volume_24h_fp || '0');
-      if (vol24h <= 0 && vol <= 100) { rVol++; continue; }
-      const yesBid = kalshiDollarsToCents(m.yes_bid_dollars);
-      const yesAsk = kalshiDollarsToCents(m.yes_ask_dollars);
-      if (yesAsk <= 0 || yesBid <= 0) { rPrice++; continue; }
-      rPass++;
-    }
-    logger.info(`[DEBUG] Filter breakdown: notOpen=${rNotOpen} mve=${rMve} vol=${rVol} price=${rPrice} PASS=${rPass}`);
-
-    // Apply the actual filter
+    // Client-side filter: volume + valid bid/ask prices
     kalshiMarkets = allKalshi.filter((m) => {
-      if (m.status !== 'open') return false;
-      if (m.mve_collection_ticker) return false;
+      // API returns 'active' when filtered by 'open'
+      if (m.status !== 'open' && m.status !== 'active') return false;
       const vol = parseFloat(m.volume_fp || '0');
       const vol24h = parseFloat(m.volume_24h_fp || '0');
       if (vol24h <= 0 && vol <= 100) return false;

@@ -101,7 +101,7 @@ export class KalshiClient {
   async getAllMarkets(params?: KalshiGetMarketsParams): Promise<KalshiMarket[]> {
     const allMarkets: KalshiMarket[] = [];
     let cursor: string | undefined;
-    const limit = params?.limit ?? 200;
+    const limit = params?.limit ?? 1000;
 
     do {
       const response = await this.getMarkets({ ...params, limit, cursor: cursor as string | undefined });

@@ -98,6 +98,9 @@ export interface KalshiGetMarketsParams {
   series_ticker?: string;
   status?: string;
   tickers?: string;
+  mve_filter?: 'only' | 'exclude';
+  min_close_ts?: number;
+  max_close_ts?: number;
 }
 
 export interface KalshiGetTradesParams {
