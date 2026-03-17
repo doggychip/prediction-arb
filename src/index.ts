@@ -74,21 +74,35 @@ async function main() {
   let kalshiMarkets: KalshiMarket[] = [];
   try {
     kalshiMarkets = await kalshiClient.getAllMarkets({ status: 'open' });
+    // Filter to only markets with meaningful volume and valid prices
+    kalshiMarkets = kalshiMarkets.filter((m) =>
+      m.status === 'open' &&
+      (m.volume_24h > 0 || m.volume > 100) &&
+      m.yes_ask > 0 &&
+      m.yes_bid > 0
+    );
     upsertKalshiMarkets(db, kalshiMarkets);
-    logger.info(`Stored ${kalshiMarkets.length} Kalshi markets`);
+    logger.info(`Stored ${kalshiMarkets.length} active Kalshi markets (filtered by volume + valid prices)`);
   } catch (err) {
     logger.error('Failed to fetch Kalshi markets', { error: (err as Error).message });
-    // Continue with whatever is in the DB
     kalshiMarkets = getActiveKalshiMarkets(db) as KalshiMarket[];
     logger.info(`Using ${kalshiMarkets.length} cached Kalshi markets from DB`);
   }
 
   let polyMarkets: any[] = [];
   try {
+    // Only fetch active, non-closed markets with orderbook enabled
     const fetched = await polyClient.getAllMarkets({ active: true, closed: false });
-    upsertPolymarketMarkets(db, fetched);
-    polyMarkets = fetched;
-    logger.info(`Stored ${polyMarkets.length} Polymarket markets`);
+    // Filter to tradeable markets with volume
+    polyMarkets = fetched.filter((m: any) =>
+      m.active &&
+      !m.closed &&
+      m.enableOrderBook &&
+      m.clobTokenIds &&
+      (m.volume24hr > 0 || parseFloat(m.volume || '0') > 100)
+    );
+    upsertPolymarketMarkets(db, polyMarkets);
+    logger.info(`Stored ${polyMarkets.length} active Polymarket markets (filtered by orderbook + volume)`);
   } catch (err) {
     logger.error('Failed to fetch Polymarket markets', { error: (err as Error).message });
     polyMarkets = getActivePolymarketMarkets(db);

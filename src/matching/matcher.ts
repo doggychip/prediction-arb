@@ -19,57 +19,36 @@ function normalize(text: string): string {
 }
 
 /**
- * Compute the Levenshtein distance between two strings.
+ * Extract meaningful tokens from text, filtering out common stop words.
  */
-function levenshteinDistance(a: string, b: string): number {
-  const m = a.length;
-  const n = b.length;
+const STOP_WORDS = new Set([
+  'will', 'the', 'be', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of',
+  'by', 'is', 'it', 'or', 'and', 'with', 'this', 'that', 'what', 'how',
+  'does', 'do', 'than', 'more', 'less', 'above', 'below', 'over', 'under',
+  'before', 'after', 'yes', 'no', 'between',
+]);
 
-  // Use a flat array for the DP table (space-optimized)
-  let prev = new Array(n + 1);
-  let curr = new Array(n + 1);
-
-  for (let j = 0; j <= n; j++) {
-    prev[j] = j;
-  }
-
-  for (let i = 1; i <= m; i++) {
-    curr[0] = i;
-    for (let j = 1; j <= n; j++) {
-      if (a[i - 1] === b[j - 1]) {
-        curr[j] = prev[j - 1];
-      } else {
-        curr[j] = 1 + Math.min(prev[j - 1], prev[j], curr[j - 1]);
-      }
-    }
-    [prev, curr] = [curr, prev];
-  }
-
-  return prev[n];
-}
-
-/**
- * Compute normalized Levenshtein similarity (0 to 1, where 1 is identical).
- */
-function levenshteinSimilarity(a: string, b: string): number {
-  if (a === b) return 1;
-  const maxLen = Math.max(a.length, b.length);
-  if (maxLen === 0) return 1;
-  return 1 - levenshteinDistance(a, b) / maxLen;
+function extractTokens(text: string): Set<string> {
+  const normalized = normalize(text);
+  const tokens = normalized.split(' ').filter(t => t.length > 1 && !STOP_WORDS.has(t));
+  return new Set(tokens);
 }
 
 /**
  * Token-based Jaccard similarity: ratio of shared words.
  */
-function tokenSimilarity(a: string, b: string): number {
-  const tokensA = new Set(a.split(' ').filter(Boolean));
-  const tokensB = new Set(b.split(' ').filter(Boolean));
-
+function tokenSimilarity(tokensA: Set<string>, tokensB: Set<string>): number {
   if (tokensA.size === 0 && tokensB.size === 0) return 1;
+  if (tokensA.size === 0 || tokensB.size === 0) return 0;
 
   let intersection = 0;
-  for (const t of tokensA) {
-    if (tokensB.has(t)) intersection++;
+  // Iterate over the smaller set for performance
+  const [smaller, larger] = tokensA.size <= tokensB.size
+    ? [tokensA, tokensB]
+    : [tokensB, tokensA];
+
+  for (const t of smaller) {
+    if (larger.has(t)) intersection++;
   }
 
   const union = tokensA.size + tokensB.size - intersection;
@@ -77,17 +56,26 @@ function tokenSimilarity(a: string, b: string): number {
 }
 
 /**
- * Combined similarity score using both Levenshtein and token similarity.
+ * Build an inverted index: token -> list of market indices.
+ * This allows O(1) lookup of which Polymarket markets share tokens with a Kalshi market.
  */
-function combinedSimilarity(a: string, b: string): number {
-  const normA = normalize(a);
-  const normB = normalize(b);
+interface IndexedMarket {
+  index: number;
+  tokens: Set<string>;
+  text: string;
+}
 
-  const levSim = levenshteinSimilarity(normA, normB);
-  const tokSim = tokenSimilarity(normA, normB);
-
-  // Weight token similarity higher since market titles often differ in phrasing
-  return 0.4 * levSim + 0.6 * tokSim;
+function buildInvertedIndex(markets: IndexedMarket[]): Map<string, number[]> {
+  const index = new Map<string, number[]>();
+  for (const m of markets) {
+    for (const token of m.tokens) {
+      if (!index.has(token)) {
+        index.set(token, []);
+      }
+      index.get(token)!.push(m.index);
+    }
+  }
+  return index;
 }
 
 export interface MatchCandidate {
@@ -98,31 +86,68 @@ export interface MatchCandidate {
 
 /**
  * Find potential market pair matches between Kalshi and Polymarket markets.
- * Uses string similarity as a placeholder — LLM matching comes in Phase 1.5.
+ * 
+ * Uses an inverted index approach for efficiency:
+ * 1. Build token index over Polymarket markets
+ * 2. For each Kalshi market, find Polymarket candidates that share at least N tokens
+ * 3. Score only the candidate pairs (instead of all N×M pairs)
  */
 export function findMatches(
   kalshiMarkets: KalshiMarket[],
   polymarketMarkets: PolymarketMarket[],
-  minConfidence = 0.5,
+  minConfidence = 0.35,
 ): MatchCandidate[] {
   logger.info(`Matching ${kalshiMarkets.length} Kalshi × ${polymarketMarkets.length} Polymarket markets`);
+  const startTime = Date.now();
+
+  // Pre-process Polymarket markets
+  const polyIndexed: IndexedMarket[] = polymarketMarkets.map((pm, i) => {
+    const text = pm.question + (pm.eventTitle ? ' ' + pm.eventTitle : '');
+    return { index: i, tokens: extractTokens(text), text };
+  });
+
+  // Build inverted index over Polymarket tokens
+  const invertedIndex = buildInvertedIndex(polyIndexed);
 
   const candidates: MatchCandidate[] = [];
+  let pairsScored = 0;
+
+  // Minimum shared tokens to even consider a pair
+  const MIN_SHARED_TOKENS = 2;
 
   for (const km of kalshiMarkets) {
     const kalshiText = km.title + (km.subtitle ? ' ' + km.subtitle : '');
+    const kalshiTokens = extractTokens(kalshiText);
 
+    if (kalshiTokens.size === 0) continue;
+
+    // Find candidate Polymarket markets via inverted index
+    // Count how many tokens each Poly market shares with this Kalshi market
+    const candidateCounts = new Map<number, number>();
+    for (const token of kalshiTokens) {
+      const polyIndices = invertedIndex.get(token);
+      if (polyIndices) {
+        for (const idx of polyIndices) {
+          candidateCounts.set(idx, (candidateCounts.get(idx) || 0) + 1);
+        }
+      }
+    }
+
+    // Only score pairs with enough shared tokens
     let bestMatch: MatchCandidate | null = null;
 
-    for (const pm of polymarketMarkets) {
-      const polyText = pm.question + (pm.eventTitle ? ' ' + pm.eventTitle : '');
-      const confidence = combinedSimilarity(kalshiText, polyText);
+    for (const [polyIdx, sharedCount] of candidateCounts) {
+      if (sharedCount < MIN_SHARED_TOKENS) continue;
+
+      const polyM = polyIndexed[polyIdx];
+      const confidence = tokenSimilarity(kalshiTokens, polyM.tokens);
+      pairsScored++;
 
       if (confidence >= minConfidence) {
         if (!bestMatch || confidence > bestMatch.confidence) {
           bestMatch = {
             kalshiMarket: km,
-            polymarketMarket: pm,
+            polymarketMarket: polymarketMarkets[polyIdx],
             confidence,
           };
         }
@@ -137,7 +162,18 @@ export function findMatches(
   // Sort by confidence descending
   candidates.sort((a, b) => b.confidence - a.confidence);
 
-  logger.info(`Found ${candidates.length} match candidates above ${minConfidence} confidence`);
+  const elapsed = Date.now() - startTime;
+  logger.info(
+    `Found ${candidates.length} match candidates (scored ${pairsScored} pairs in ${elapsed}ms)`
+  );
+
+  // Log top matches for visibility
+  for (const c of candidates.slice(0, 20)) {
+    logger.info(
+      `  Match (${(c.confidence * 100).toFixed(1)}%): "${c.kalshiMarket.title}" ↔ "${c.polymarketMarket.question}"`
+    );
+  }
+
   return candidates;
 }
 
