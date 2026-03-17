@@ -1,4 +1,4 @@
-/** Kalshi-specific types */
+/** Kalshi-specific types — matches actual API response fields */
 
 export interface KalshiMarket {
   ticker: string;
@@ -6,21 +6,50 @@ export interface KalshiMarket {
   title: string;
   subtitle: string;
   status: string;
-  category: string;
-  yes_bid: number;
-  yes_ask: number;
-  no_bid: number;
-  no_ask: number;
-  last_price: number;
-  volume: number;
-  volume_24h: number;
-  open_interest: number;
+  market_type: string;
+
+  // Prices are dollar strings like "0.0800"
+  yes_bid_dollars: string;
+  yes_ask_dollars: string;
+  no_bid_dollars: string;
+  no_ask_dollars: string;
+  last_price_dollars: string;
+  notional_value_dollars: string;
+
+  // Volume and OI are float-point strings
+  volume_fp: string;
+  volume_24h_fp: string;
+  open_interest_fp: string;
+  liquidity_dollars: string;
+
+  // Sizes
+  yes_bid_size_fp: string;
+  yes_ask_size_fp: string;
+
+  // Rules and timing
   rules_primary: string;
   rules_secondary: string;
   close_time: string;
+  open_time: string;
+  expiration_time: string;
+  expected_expiration_time: string;
+
+  // Resolution
   result: string;
-  notional_value: number;
+  expiration_value: string;
+
+  // MVE (multivariate/parlay) fields
+  mve_collection_ticker?: string;
+  mve_selected_legs?: any[];
+
+  // Misc
   tick_size: number;
+  settlement_timer_seconds: number;
+  can_close_early: boolean;
+  response_price_units: string;
+  yes_sub_title: string;
+  no_sub_title: string;
+  strike_type: string;
 }
 
 export interface KalshiEvent {
@@ -39,7 +68,7 @@ export interface KalshiOrderbook {
 }
 
 export interface KalshiOrderbookSide {
-  price: number; // cents
+  price: number;
   quantity: number;
 }
 
@@ -95,12 +124,10 @@ export interface KalshiWsTickerMessage {
     market_ticker: string;
     yes_bid_dollars?: string;
     yes_ask_dollars?: string;
-    yes_bid?: number;
-    yes_ask?: number;
-    no_bid?: number;
-    no_ask?: number;
-    last_price?: number;
-    volume?: number;
+    no_bid_dollars?: string;
+    no_ask_dollars?: string;
+    last_price_dollars?: string;
+    volume_fp?: string;
   };
 }
 
@@ -141,3 +168,9 @@ export type KalshiWsMessage =
   | KalshiWsTradeMessage
   | KalshiWsOrderbookSnapshotMessage
   | KalshiWsOrderbookDeltaMessage;
+
+/** Helper: convert Kalshi dollar string to cents */
+export function kalshiDollarsToCents(dollars: string | undefined): number {
+  if (!dollars) return 0;
+  return Math.round(parseFloat(dollars) * 100);
+}

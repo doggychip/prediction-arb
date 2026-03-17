@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import type { Config } from '../config.js';
 import type { KalshiWsMessage, KalshiWsSubscribeMessage } from './types.js';
+import { kalshiDollarsToCents } from './types.js';
 import type { PriceUpdate } from '../types.js';
 import { createLogger } from '../logger.js';
 
@@ -136,11 +137,11 @@ export class KalshiWebSocket extends EventEmitter {
         const update: PriceUpdate = {
           platform: 'kalshi',
           ticker: data.market_ticker,
-          yesBid: data.yes_bid,
-          yesAsk: data.yes_ask,
-          noBid: data.no_bid,
-          noAsk: data.no_ask,
-          lastPrice: data.last_price,
+          yesBid: kalshiDollarsToCents(data.yes_bid_dollars),
+          yesAsk: kalshiDollarsToCents(data.yes_ask_dollars),
+          noBid: kalshiDollarsToCents(data.no_bid_dollars),
+          noAsk: kalshiDollarsToCents(data.no_ask_dollars),
+          lastPrice: kalshiDollarsToCents(data.last_price_dollars),
           timestamp: new Date().toISOString(),
         };
         this.emit('priceUpdate', update);

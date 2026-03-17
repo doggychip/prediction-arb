@@ -18,7 +18,7 @@ import { findMatches, candidatesToPairs } from './matching/matcher.js';
 import { analyzeArb, dollarsToCents, type PairPrices } from './arb/detector.js';
 import { sendDiscordAlert } from './alerts/discord.js';
 import type { PriceUpdate } from './types.js';
-import type { KalshiMarket } from './kalshi/types.js';
+import { kalshiDollarsToCents, type KalshiMarket } from './kalshi/types.js';
 import { createLogger } from './logger.js';
 
 const logger = createLogger('main');
@@ -74,13 +74,18 @@ async function main() {
   let kalshiMarkets: KalshiMarket[] = [];
   try {
     kalshiMarkets = await kalshiClient.getAllMarkets({ status: 'open' });
-    // Filter to only markets with meaningful volume and valid prices
-    kalshiMarkets = kalshiMarkets.filter((m) =>
-      m.status === 'open' &&
-      (m.volume_24h > 0 || m.volume > 100) &&
-      m.yes_ask > 0 &&
-      m.yes_bid > 0
-    );
+    // Filter to only markets with meaningful volume, valid prices, and no MVE parlays
+    kalshiMarkets = kalshiMarkets.filter((m) => {
+      if (m.status !== 'open') return false;
+      if (m.mve_collection_ticker) return false; // skip parlays
+      const vol = parseFloat(m.volume_fp || '0');
+      const vol24h = parseFloat(m.volume_24h_fp || '0');
+      if (vol24h <= 0 && vol <= 100) return false;
+      const yesBid = kalshiDollarsToCents(m.yes_bid_dollars);
+      const yesAsk = kalshiDollarsToCents(m.yes_ask_dollars);
+      if (yesAsk <= 0 || yesBid <= 0) return false;
+      return true;
+    });
     upsertKalshiMarkets(db, kalshiMarkets);
     logger.info(`Stored ${kalshiMarkets.length} active Kalshi markets (filtered by volume + valid prices)`);
   } catch (err) {
@@ -178,10 +183,10 @@ async function main() {
       } catch { /* ignore */ }
 
       priceCache.set(row.id, {
-        kalshiYesBid: km.yes_bid ?? 0,
-        kalshiYesAsk: km.yes_ask ?? 0,
-        kalshiNoBid: km.no_bid ?? 0,
-        kalshiNoAsk: km.no_ask ?? 0,
+        kalshiYesBid: kalshiDollarsToCents(km.yes_bid_dollars),
+        kalshiYesAsk: kalshiDollarsToCents(km.yes_ask_dollars),
+        kalshiNoBid: kalshiDollarsToCents(km.no_bid_dollars),
+        kalshiNoAsk: kalshiDollarsToCents(km.no_ask_dollars),
         polyYesBid,
         polyYesAsk,
       });

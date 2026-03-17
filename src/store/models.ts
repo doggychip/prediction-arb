@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { KalshiMarket } from '../kalshi/types.js';
+import { kalshiDollarsToCents } from '../kalshi/types.js';
 import type { PolymarketMarket } from '../polymarket/types.js';
 import type { MarketPair } from '../types.js';
 import type { ArbOpportunity } from '../arb/types.js';
@@ -43,19 +44,19 @@ export function upsertKalshiMarket(db: Database.Database, market: KalshiMarket):
     event_ticker: market.event_ticker,
     title: market.title,
     subtitle: market.subtitle || null,
-    category: market.category || null,
+    category: null, // Not returned by Kalshi API
     status: market.status,
-    yes_bid: market.yes_bid ?? null,
-    yes_ask: market.yes_ask ?? null,
-    no_bid: market.no_bid ?? null,
-    no_ask: market.no_ask ?? null,
-    last_price: market.last_price ?? null,
-    volume: market.volume ?? null,
-    volume_24h: market.volume_24h ?? null,
-    open_interest: market.open_interest ?? null,
+    yes_bid: kalshiDollarsToCents(market.yes_bid_dollars),
+    yes_ask: kalshiDollarsToCents(market.yes_ask_dollars),
+    no_bid: kalshiDollarsToCents(market.no_bid_dollars),
+    no_ask: kalshiDollarsToCents(market.no_ask_dollars),
+    last_price: kalshiDollarsToCents(market.last_price_dollars),
+    volume: Math.round(parseFloat(market.volume_fp || '0')),
+    volume_24h: Math.round(parseFloat(market.volume_24h_fp || '0')),
+    open_interest: Math.round(parseFloat(market.open_interest_fp || '0')),
     rules_primary: market.rules_primary || null,
     close_time: market.close_time || null,
-    notional_value: market.notional_value ?? 100,
+    notional_value: kalshiDollarsToCents(market.notional_value_dollars) || 100,
   });
 }
 
