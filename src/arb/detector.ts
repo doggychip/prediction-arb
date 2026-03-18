@@ -9,6 +9,9 @@ const KALSHI_FEE_RATE = 0.07;
 /** Minimum spread in cents to consider an opportunity */
 const MIN_SPREAD_CENTS = 1;
 
+/** Spreads above this are almost certainly false positives (polarity mismatch, bad match, stale data) */
+const SUSPECT_SPREAD_CENTS = 20;
+
 export interface PairPrices {
   pairId: string;
   kalshiTicker: string;
@@ -109,6 +112,27 @@ export function analyzeArb(prices: PairPrices): ArbAnalysis {
   let best: ArbOpportunity | null = null;
 
   const bestDirection = net1 >= net2 ? direction1 : direction2;
+
+  // Polarity check: if BOTH directions show large positive spreads,
+  // the markets are almost certainly mismatched (inverted yes/no).
+  // A real arb only exists in one direction — the other should be negative.
+  if (direction1.grossSpread > SUSPECT_SPREAD_CENTS && direction2.grossSpread > SUSPECT_SPREAD_CENTS) {
+    logger.warn(
+      `Polarity mismatch: both directions positive (${direction1.grossSpread}¢ / ${direction2.grossSpread}¢) | ` +
+      `${prices.kalshiTicker} ↔ ${prices.polymarketId} — skipping as likely inverted match`,
+    );
+    return { direction1, direction2, best: null };
+  }
+
+  // Sanity check: single-direction spreads above threshold are suspect
+  if (bestDirection.grossSpread > SUSPECT_SPREAD_CENTS) {
+    logger.warn(
+      `Suspect spread: ${bestDirection.strategy} gross=${bestDirection.grossSpread}¢ | ` +
+      `${prices.kalshiTicker} ↔ ${prices.polymarketId} — flagged as likely false positive`,
+    );
+    return { direction1, direction2, best: null };
+  }
+
   if (bestDirection.netSpread >= MIN_SPREAD_CENTS) {
     best = {
       pairId: prices.pairId,

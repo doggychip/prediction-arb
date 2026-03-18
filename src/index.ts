@@ -50,6 +50,12 @@ const polyTokenToPairs = new Map<string, PairRef[]>();
 
 let statsOppsFound = 0;
 let statsAlertssSent = 0;
+let statsSuppressed = 0;
+
+// Alert cooldown: pairId -> { lastAlertTime, lastNetSpread }
+const alertCooldown = new Map<string, { lastAlertTime: number; lastNetSpread: number }>();
+const ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const SPREAD_CHANGE_THRESHOLD = 3; // re-alert if net spread changes by >= 3¢
 
 async function main() {
   logger.info('=== prediction-arb starting ===');
@@ -228,7 +234,7 @@ async function main() {
   setInterval(() => {
     logger.info(
       `[Stats] Pairs: ${allPairs.length} | Opps found: ${statsOppsFound} | Alerts sent: ${statsAlertssSent} | ` +
-      `Cache size: ${priceCache.size}`,
+      `Suppressed: ${statsSuppressed} | Cache size: ${priceCache.size}`,
     );
   }, STATS_INTERVAL_MS);
 
@@ -320,7 +326,7 @@ function handlePriceUpdate(
       logger.error('Failed to insert price snapshot', { error: (err as Error).message });
     }
 
-    // If arb opportunity found, log and alert
+    // If arb opportunity found, log and alert (with cooldown)
     if (analysis.best) {
       statsOppsFound++;
 
@@ -330,16 +336,33 @@ function handlePriceUpdate(
         logger.error('Failed to insert arb opportunity', { error: (err as Error).message });
       }
 
-      sendDiscordAlert(
-        config.discordWebhookUrl,
-        analysis.best,
-        ref.kalshiTitle,
-        ref.polyQuestion,
-      ).then(() => {
-        statsAlertssSent++;
-      }).catch(() => {
-        // Already logged inside sendDiscordAlert
-      });
+      // Alert cooldown: suppress duplicate alerts for same pair within window
+      // unless the spread has changed meaningfully
+      const now = Date.now();
+      const cooldownEntry = alertCooldown.get(ref.pairId);
+      const spreadChanged = cooldownEntry
+        ? Math.abs(analysis.best.netSpreadCents - cooldownEntry.lastNetSpread) >= SPREAD_CHANGE_THRESHOLD
+        : true;
+      const cooldownExpired = cooldownEntry
+        ? (now - cooldownEntry.lastAlertTime) >= ALERT_COOLDOWN_MS
+        : true;
+
+      if (cooldownExpired || spreadChanged) {
+        alertCooldown.set(ref.pairId, { lastAlertTime: now, lastNetSpread: analysis.best.netSpreadCents });
+
+        sendDiscordAlert(
+          config.discordWebhookUrl,
+          analysis.best,
+          ref.kalshiTitle,
+          ref.polyQuestion,
+        ).then(() => {
+          statsAlertssSent++;
+        }).catch(() => {
+          // Already logged inside sendDiscordAlert
+        });
+      } else {
+        statsSuppressed++;
+      }
     }
   }
 }
