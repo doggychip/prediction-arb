@@ -37,9 +37,11 @@ interface KalshiTradesResponse {
 
 export class KalshiClient {
   private baseUrl: string;
+  private requestTimeoutMs: number;
 
   constructor(config: Config) {
     this.baseUrl = config.kalshiBaseUrl;
+    this.requestTimeoutMs = config.requestTimeoutMs;
   }
 
   private async request<T>(path: string, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
@@ -54,11 +56,20 @@ export class KalshiClient {
 
     logger.debug(`GET ${url.toString()}`);
 
-    const response = await fetch(url.toString(), {
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetch(url.toString(), {
+        headers: {
+          'Accept': 'application/json',
+        },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');

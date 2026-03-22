@@ -13,10 +13,12 @@ const logger = createLogger('polymarket-client');
 export class PolymarketClient {
   private gammaUrl: string;
   private clobClient: ClobClient;
+  private requestTimeoutMs: number;
 
   constructor(config: Config) {
     this.gammaUrl = config.polymarketGammaUrl;
     this.clobClient = new ClobClient(config.polymarketClobUrl, 137);
+    this.requestTimeoutMs = config.requestTimeoutMs;
   }
 
   // --- Gamma API (market discovery) ---
@@ -33,9 +35,18 @@ export class PolymarketClient {
 
     logger.debug(`GET ${url.toString()}`);
 
-    const response = await fetch(url.toString(), {
-      headers: { 'Accept': 'application/json' },
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetch(url.toString(), {
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');

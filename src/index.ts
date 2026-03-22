@@ -1,4 +1,4 @@
-import { loadConfig, validateConfig } from './config.js';
+import { loadConfig, validateConfig, type Config } from './config.js';
 import { initDatabase } from './store/db.js';
 import {
   upsertKalshiMarkets,
@@ -9,16 +9,18 @@ import {
   getApprovedPairs,
   insertArbOpportunity,
   insertPriceSnapshot,
+  pruneOldData,
 } from './store/models.js';
 import { KalshiClient } from './kalshi/client.js';
 import { KalshiWebSocket } from './kalshi/websocket.js';
 import { PolymarketClient } from './polymarket/client.js';
 import { PolymarketWebSocket } from './polymarket/websocket.js';
 import { findMatches, candidatesToPairs } from './matching/matcher.js';
-import { analyzeArb, dollarsToCents, type PairPrices } from './arb/detector.js';
+import { analyzeArb, dollarsToCents, type PairPrices, type ArbThresholds } from './arb/detector.js';
 import { sendDiscordAlert } from './alerts/discord.js';
 import type { PriceUpdate } from './types.js';
 import { kalshiDollarsToCents, type KalshiMarket } from './kalshi/types.js';
+import type { PolymarketMarket } from './polymarket/types.js';
 import { createLogger } from './logger.js';
 
 const logger = createLogger('main');
@@ -31,6 +33,7 @@ interface PriceCache {
   kalshiNoAsk: number;
   polyYesBid: number;
   polyYesAsk: number;
+  lastUpdated: number; // Date.now() timestamp for TTL
 }
 
 const priceCache = new Map<string, PriceCache>(); // key = pairId
@@ -49,13 +52,11 @@ const kalshiTickerToPairs = new Map<string, PairRef[]>();
 const polyTokenToPairs = new Map<string, PairRef[]>();
 
 let statsOppsFound = 0;
-let statsAlertssSent = 0;
+let statsAlertsSent = 0;
 let statsSuppressed = 0;
 
 // Alert cooldown: pairId -> { lastAlertTime, lastNetSpread }
 const alertCooldown = new Map<string, { lastAlertTime: number; lastNetSpread: number }>();
-const ALERT_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
-const SPREAD_CHANGE_THRESHOLD = 3; // re-alert if net spread changes by >= 3¢
 
 async function main() {
   logger.info('=== prediction-arb starting ===');
@@ -99,16 +100,16 @@ async function main() {
     logger.info(`Stored ${kalshiMarkets.length} active Kalshi markets (filtered by volume + valid prices)`);
   } catch (err) {
     logger.error('Failed to fetch Kalshi markets', { error: (err as Error).message });
-    kalshiMarkets = getActiveKalshiMarkets(db) as KalshiMarket[];
+    kalshiMarkets = getActiveKalshiMarkets(db);
     logger.info(`Using ${kalshiMarkets.length} cached Kalshi markets from DB`);
   }
 
-  let polyMarkets: any[] = [];
+  let polyMarkets: PolymarketMarket[] = [];
   try {
     // Only fetch active, non-closed markets with orderbook enabled
     const fetched = await polyClient.getAllMarkets({ active: true, closed: false });
     // Filter to tradeable markets with volume
-    polyMarkets = fetched.filter((m: any) =>
+    polyMarkets = fetched.filter((m) =>
       m.active &&
       !m.closed &&
       m.enableOrderBook &&
@@ -167,19 +168,17 @@ async function main() {
       polyQuestion: row.poly_question,
     };
 
-    if (!kalshiTickerToPairs.has(row.kalshi_ticker)) {
-      kalshiTickerToPairs.set(row.kalshi_ticker, []);
-    }
-    kalshiTickerToPairs.get(row.kalshi_ticker)!.push(ref);
+    const kalshiRefs = kalshiTickerToPairs.get(row.kalshi_ticker) ?? [];
+    kalshiRefs.push(ref);
+    kalshiTickerToPairs.set(row.kalshi_ticker, kalshiRefs);
 
-    if (!polyTokenToPairs.has(polyYesTokenId)) {
-      polyTokenToPairs.set(polyYesTokenId, []);
-    }
-    polyTokenToPairs.get(polyYesTokenId)!.push(ref);
+    const polyRefs = polyTokenToPairs.get(polyYesTokenId) ?? [];
+    polyRefs.push(ref);
+    polyTokenToPairs.set(polyYesTokenId, polyRefs);
 
     // Seed price cache from DB/REST data
     const km = kalshiMarkets.find((m) => m.ticker === row.kalshi_ticker);
-    const pm = polyMarkets.find((m: any) => m.id === row.polymarket_id);
+    const pm = polyMarkets.find((m) => m.id === row.polymarket_id);
     if (km && pm) {
       let polyYesBid = 0;
       let polyYesAsk = 0;
@@ -198,6 +197,7 @@ async function main() {
         kalshiNoAsk: kalshiDollarsToCents(km.no_ask_dollars),
         polyYesBid,
         polyYesAsk,
+        lastUpdated: Date.now(),
       });
     }
   }
@@ -229,14 +229,36 @@ async function main() {
     polyWs.subscribe(polyTokenIds);
   }
 
-  // --- Step 5: Periodic stats logging ---
+  // --- Step 5: Periodic stats logging and DB pruning ---
   const STATS_INTERVAL_MS = 60_000;
+  const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000; // every 6 hours
+
   setInterval(() => {
+    // Evict stale price cache entries
+    const now = Date.now();
+    for (const [pairId, cache] of priceCache) {
+      if (now - cache.lastUpdated > config.priceCacheTtlMs) {
+        priceCache.delete(pairId);
+      }
+    }
+
     logger.info(
-      `[Stats] Pairs: ${allPairs.length} | Opps found: ${statsOppsFound} | Alerts sent: ${statsAlertssSent} | ` +
+      `[Stats] Pairs: ${allPairs.length} | Opps found: ${statsOppsFound} | Alerts sent: ${statsAlertsSent} | ` +
       `Suppressed: ${statsSuppressed} | Cache size: ${priceCache.size}`,
     );
   }, STATS_INTERVAL_MS);
+
+  // Periodic DB pruning
+  setInterval(() => {
+    try {
+      const result = pruneOldData(db, config.snapshotRetentionDays, config.arbRetentionDays);
+      if (result.snapshotsDeleted > 0 || result.arbsDeleted > 0) {
+        logger.info(`[Prune] Deleted ${result.snapshotsDeleted} old snapshots, ${result.arbsDeleted} old arb records`);
+      }
+    } catch (err) {
+      logger.error('Failed to prune old data', { error: (err as Error).message });
+    }
+  }, PRUNE_INTERVAL_MS);
 
   // --- Graceful shutdown ---
   const shutdown = () => {
@@ -255,7 +277,7 @@ async function main() {
 
 function handlePriceUpdate(
   db: ReturnType<typeof initDatabase>,
-  config: ReturnType<typeof loadConfig>,
+  config: Config,
   update: PriceUpdate,
 ) {
   // Find relevant pairs
@@ -279,6 +301,7 @@ function handlePriceUpdate(
         kalshiNoAsk: 0,
         polyYesBid: 0,
         polyYesAsk: 0,
+        lastUpdated: Date.now(),
       };
       priceCache.set(ref.pairId, cache);
     }
@@ -293,6 +316,7 @@ function handlePriceUpdate(
       if (update.yesBid !== undefined) cache.polyYesBid = update.yesBid;
       if (update.yesAsk !== undefined) cache.polyYesAsk = update.yesAsk;
     }
+    cache.lastUpdated = Date.now();
 
     // Skip if we don't have prices from both sides
     if (cache.kalshiYesAsk === 0 || cache.polyYesBid === 0) return;
@@ -310,7 +334,12 @@ function handlePriceUpdate(
       polyYesAsk: cache.polyYesAsk,
     };
 
-    const analysis = analyzeArb(prices);
+    const arbThresholds: ArbThresholds = {
+      kalshiFeeRate: config.kalshiFeeRate,
+      minSpreadCents: config.minSpreadCents,
+      suspectSpreadCents: config.suspectSpreadCents,
+    };
+    const analysis = analyzeArb(prices, arbThresholds);
 
     // Log price snapshot
     try {
@@ -341,10 +370,10 @@ function handlePriceUpdate(
       const now = Date.now();
       const cooldownEntry = alertCooldown.get(ref.pairId);
       const spreadChanged = cooldownEntry
-        ? Math.abs(analysis.best.netSpreadCents - cooldownEntry.lastNetSpread) >= SPREAD_CHANGE_THRESHOLD
+        ? Math.abs(analysis.best.netSpreadCents - cooldownEntry.lastNetSpread) >= config.spreadChangeThreshold
         : true;
       const cooldownExpired = cooldownEntry
-        ? (now - cooldownEntry.lastAlertTime) >= ALERT_COOLDOWN_MS
+        ? (now - cooldownEntry.lastAlertTime) >= config.alertCooldownMs
         : true;
 
       if (cooldownExpired || spreadChanged) {
@@ -356,7 +385,7 @@ function handlePriceUpdate(
           ref.kalshiTitle,
           ref.polyQuestion,
         ).then(() => {
-          statsAlertssSent++;
+          statsAlertsSent++;
         }).catch(() => {
           // Already logged inside sendDiscordAlert
         });

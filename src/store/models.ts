@@ -70,7 +70,8 @@ export function upsertKalshiMarkets(db: Database.Database, markets: KalshiMarket
 }
 
 export function getActiveKalshiMarkets(db: Database.Database): KalshiMarket[] {
-  return db.prepare("SELECT * FROM kalshi_markets WHERE status = 'open'").all() as KalshiMarket[];
+  // Note: DB rows have snake_case columns matching KalshiMarket field names
+  return db.prepare("SELECT * FROM kalshi_markets WHERE status IN ('open', 'active')").all() as KalshiMarket[];
 }
 
 // --- Polymarket Markets ---
@@ -137,11 +138,25 @@ export function upsertPolymarketMarkets(db: Database.Database, markets: Polymark
   transaction(markets);
 }
 
-export function getActivePolymarketMarkets(db: Database.Database): any[] {
-  return db.prepare("SELECT * FROM polymarket_markets WHERE active = 1 AND closed = 0").all();
+export function getActivePolymarketMarkets(db: Database.Database): PolymarketMarket[] {
+  return db.prepare("SELECT * FROM polymarket_markets WHERE active = 1 AND closed = 0").all() as PolymarketMarket[];
 }
 
 // --- Market Pairs ---
+
+export interface MarketPairRow {
+  id: string;
+  kalshi_ticker: string;
+  polymarket_id: string;
+  match_confidence: number;
+  resolution_divergence_risk: number;
+  match_method: string;
+  status: string;
+  notes: string | null;
+  kalshi_title: string;
+  poly_question: string;
+  poly_clob_token_ids: string;
+}
 
 export function upsertMarketPair(db: Database.Database, pair: MarketPair): void {
   const stmt = db.prepare(`
@@ -174,7 +189,7 @@ export function upsertMarketPair(db: Database.Database, pair: MarketPair): void 
   });
 }
 
-export function getApprovedPairs(db: Database.Database): any[] {
+export function getApprovedPairs(db: Database.Database): MarketPairRow[] {
   return db.prepare(`
     SELECT mp.*, km.title as kalshi_title, pm.question as poly_question,
            pm.clob_token_ids as poly_clob_token_ids
@@ -182,17 +197,17 @@ export function getApprovedPairs(db: Database.Database): any[] {
     JOIN kalshi_markets km ON mp.kalshi_ticker = km.ticker
     JOIN polymarket_markets pm ON mp.polymarket_id = pm.id
     WHERE mp.status IN ('approved', 'pending_review')
-  `).all();
+  `).all() as MarketPairRow[];
 }
 
-export function getAllPairs(db: Database.Database): any[] {
+export function getAllPairs(db: Database.Database): MarketPairRow[] {
   return db.prepare(`
     SELECT mp.*, km.title as kalshi_title, pm.question as poly_question,
            pm.clob_token_ids as poly_clob_token_ids
     FROM market_pairs mp
     JOIN kalshi_markets km ON mp.kalshi_ticker = km.ticker
     JOIN polymarket_markets pm ON mp.polymarket_id = pm.id
-  `).all();
+  `).all() as MarketPairRow[];
 }
 
 // --- Arb Opportunities ---
@@ -235,6 +250,25 @@ export function insertArbOpportunity(db: Database.Database, opp: ArbOpportunity)
   });
 
   return Number(result.lastInsertRowid);
+}
+
+export function pruneOldData(
+  db: Database.Database,
+  snapshotRetentionDays: number,
+  arbRetentionDays: number,
+): { snapshotsDeleted: number; arbsDeleted: number } {
+  const snapshotResult = db.prepare(
+    `DELETE FROM price_snapshots WHERE timestamp < datetime('now', '-' || ? || ' days')`,
+  ).run(snapshotRetentionDays);
+
+  const arbResult = db.prepare(
+    `DELETE FROM arb_opportunities WHERE detected_at < datetime('now', '-' || ? || ' days')`,
+  ).run(arbRetentionDays);
+
+  return {
+    snapshotsDeleted: snapshotResult.changes,
+    arbsDeleted: arbResult.changes,
+  };
 }
 
 export function getRecentOpportunities(db: Database.Database, limit = 50): any[] {

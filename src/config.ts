@@ -19,11 +19,25 @@ export interface Config {
   // Discord
   discordWebhookUrl: string;
 
-  // LLM
-  openrouterApiKey: string;
-
   // Database
   dbPath: string;
+
+  // Arb detection thresholds
+  kalshiFeeRate: number;
+  minSpreadCents: number;
+  suspectSpreadCents: number;
+  alertCooldownMs: number;
+  spreadChangeThreshold: number;
+
+  // Database maintenance
+  snapshotRetentionDays: number;
+  arbRetentionDays: number;
+
+  // Price cache
+  priceCacheTtlMs: number;
+
+  // HTTP request timeout
+  requestTimeoutMs: number;
 }
 
 function getKalshiBaseUrl(env: 'demo' | 'prod'): string {
@@ -55,9 +69,24 @@ export function loadConfig(): Config {
 
     discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL || '',
 
-    openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
-
     dbPath: process.env.DB_PATH || 'data/arb.db',
+
+    // Arb detection thresholds (configurable via env)
+    kalshiFeeRate: parseFloat(process.env.KALSHI_FEE_RATE || '0.07'),
+    minSpreadCents: parseInt(process.env.MIN_SPREAD_CENTS || '1', 10),
+    suspectSpreadCents: parseInt(process.env.SUSPECT_SPREAD_CENTS || '20', 10),
+    alertCooldownMs: parseInt(process.env.ALERT_COOLDOWN_MS || String(5 * 60 * 1000), 10),
+    spreadChangeThreshold: parseInt(process.env.SPREAD_CHANGE_THRESHOLD || '3', 10),
+
+    // Database maintenance
+    snapshotRetentionDays: parseInt(process.env.SNAPSHOT_RETENTION_DAYS || '7', 10),
+    arbRetentionDays: parseInt(process.env.ARB_RETENTION_DAYS || '30', 10),
+
+    // Price cache TTL (default 5 minutes)
+    priceCacheTtlMs: parseInt(process.env.PRICE_CACHE_TTL_MS || String(5 * 60 * 1000), 10),
+
+    // HTTP request timeout (default 30s)
+    requestTimeoutMs: parseInt(process.env.REQUEST_TIMEOUT_MS || '30000', 10),
   };
 }
 
