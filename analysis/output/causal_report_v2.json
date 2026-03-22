@@ -1,0 +1,235 @@
+{
+  "version": "v2_refined",
+  "data_quality": {
+    "note": "94.6% of snapshots have spread=0 (sparse signal)",
+    "approach": "tier-based pair selection + regime analysis"
+  },
+  "rankings": [
+    {
+      "feature": "poly_mid",
+      "causal_score": 39.72,
+      "confidence": 0.67,
+      "n_methods": 4,
+      "granger_pct": 0.3333,
+      "granger_f": 8.638,
+      "te_net": 0.0853,
+      "te_sig_pct": 0.3333,
+      "te_z": 9.72,
+      "mi_net": 0.0533,
+      "hsic_causes_pct": 0.6667,
+      "regime_significant": true,
+      "regime_effect": -5.052,
+      "avg_lead": 0.0
+    },
+    {
+      "feature": "poly_ba_spread",
+      "causal_score": 39.33,
+      "confidence": 0.67,
+      "n_methods": 4,
+      "granger_pct": 1.0,
+      "granger_f": 10.9523,
+      "te_net": 0.0901,
+      "te_sig_pct": 0.3333,
+      "te_z": 12.8367,
+      "mi_net": 0.0534,
+      "hsic_causes_pct": 0.5,
+      "regime_significant": false,
+      "regime_effect": -5.157,
+      "avg_lead": 0.0
+    },
+    {
+      "feature": "mid_divergence",
+      "causal_score": 38.68,
+      "confidence": 0.67,
+      "n_methods": 4,
+      "granger_pct": 0.3333,
+      "granger_f": 8.638,
+      "te_net": 0.0746,
+      "te_sig_pct": 0.3333,
+      "te_z": 11.04,
+      "mi_net": 0.0278,
+      "hsic_causes_pct": 0.6667,
+      "regime_significant": true,
+      "regime_effect": 13.974,
+      "avg_lead": 0.0
+    },
+    {
+      "feature": "d_poly_mid",
+      "causal_score": 20.0,
+      "confidence": 0.5,
+      "n_methods": 3,
+      "granger_pct": 0.3333,
+      "granger_f": 89.504,
+      "te_net": -0.022,
+      "te_sig_pct": 0.3333,
+      "te_z": 3.835,
+      "mi_net": -0.0226,
+      "hsic_causes_pct": 0.0,
+      "regime_significant": NaN,
+      "regime_effect": NaN,
+      "avg_lead": NaN
+    },
+    {
+      "feature": "d_poly_ba",
+      "causal_score": 15.0,
+      "confidence": 0.17,
+      "n_methods": 1,
+      "granger_pct": 0.3333,
+      "granger_f": 100.652,
+      "te_net": NaN,
+      "te_sig_pct": NaN,
+      "te_z": NaN,
+      "mi_net": NaN,
+      "hsic_causes_pct": NaN,
+      "regime_significant": NaN,
+      "regime_effect": NaN,
+      "avg_lead": NaN
+    },
+    {
+      "feature": "kalshi_ba_spread",
+      "causal_score": 15.0,
+      "confidence": 0.17,
+      "n_methods": 1,
+      "granger_pct": NaN,
+      "granger_f": NaN,
+      "te_net": NaN,
+      "te_sig_pct": NaN,
+      "te_z": NaN,
+      "mi_net": NaN,
+      "hsic_causes_pct": NaN,
+      "regime_significant": true,
+      "regime_effect": 27.104,
+      "avg_lead": NaN
+    },
+    {
+      "feature": "kalshi_mid",
+      "causal_score": 15.0,
+      "confidence": 0.17,
+      "n_methods": 1,
+      "granger_pct": NaN,
+      "granger_f": NaN,
+      "te_net": NaN,
+      "te_sig_pct": NaN,
+      "te_z": NaN,
+      "mi_net": NaN,
+      "hsic_causes_pct": NaN,
+      "regime_significant": true,
+      "regime_effect": 8.922,
+      "avg_lead": NaN
+    },
+    {
+      "feature": "volume_imbalance",
+      "causal_score": 10.55,
+      "confidence": 0.17,
+      "n_methods": 1,
+      "granger_pct": NaN,
+      "granger_f": NaN,
+      "te_net": NaN,
+      "te_sig_pct": NaN,
+      "te_z": NaN,
+      "mi_net": NaN,
+      "hsic_causes_pct": NaN,
+      "regime_significant": true,
+      "regime_effect": -0.274,
+      "avg_lead": NaN
+    },
+    {
+      "feature": "liquidity_ratio",
+      "causal_score": 10.05,
+      "confidence": 0.17,
+      "n_methods": 1,
+      "granger_pct": NaN,
+      "granger_f": NaN,
+      "te_net": NaN,
+      "te_sig_pct": NaN,
+      "te_z": NaN,
+      "mi_net": NaN,
+      "hsic_causes_pct": NaN,
+      "regime_significant": true,
+      "regime_effect": -0.023,
+      "avg_lead": NaN
+    }
+  ],
+  "pc_graph": [
+    {
+      "from": "kalshi_ba_spread",
+      "to": "mid_divergence",
+      "directed": false,
+      "display": "kalshi_ba_spread_mean \u2014 mid_divergence_mean"
+    },
+    {
+      "from": "mid_divergence",
+      "to": "kalshi_mid",
+      "directed": false,
+      "display": "mid_divergence_mean \u2014 kalshi_mid_mean"
+    }
+  ],
+  "regime_analysis": {
+    "kalshi_ba_spread": {
+      "onset_mean": 63.388,
+      "quiet_mean": 36.284,
+      "effect": 27.104,
+      "p_value": 0.0,
+      "significant": "True"
+    },
+    "poly_ba_spread": {
+      "onset_mean": 22.322,
+      "quiet_mean": 27.479,
+      "effect": -5.157,
+      "p_value": 0.527,
+      "significant": "False"
+    },
+    "mid_divergence": {
+      "onset_mean": 39.476,
+      "quiet_mean": 25.502,
+      "effect": 13.974,
+      "p_value": 0.0,
+      "significant": "True"
+    },
+    "kalshi_mid": {
+      "onset_mean": 59.575,
+      "quiet_mean": 50.652,
+      "effect": 8.922,
+      "p_value": 0.0016,
+      "significant": "True"
+    },
+    "poly_mid": {
+      "onset_mean": 20.099,
+      "quiet_mean": 25.151,
+      "effect": -5.052,
+      "p_value": 0.0,
+      "significant": "True"
+    },
+    "liquidity_ratio": {
+      "onset_mean": 0.19,
+      "quiet_mean": 0.213,
+      "effect": -0.023,
+      "p_value": 0.0,
+      "significant": "True"
+    },
+    "volume_imbalance": {
+      "onset_mean": -0.937,
+      "quiet_mean": -0.663,
+      "effect": -0.274,
+      "p_value": 0.0,
+      "significant": "True"
+    }
+  },
+  "methods": [
+    "granger_causality",
+    "transfer_entropy_permutation",
+    "mutual_information",
+    "HSIC_kernel",
+    "regime_transitions",
+    "PC_algorithm",
+    "lagged_cross_correlation"
+  ],
+  "interpretation": {
+    "top_causes": [
+      "poly_mid",
+      "poly_ba_spread",
+      "mid_divergence"
+    ],
+    "confidence_note": "n_methods indicates how many independent methods found causal evidence"
+  }
+}
