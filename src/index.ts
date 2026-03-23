@@ -18,6 +18,7 @@ import { findMatches, candidatesToPairs } from './matching/matcher.js';
 import { analyzeArb, dollarsToCents, type PairPrices } from './arb/detector.js';
 import { sendDiscordAlert } from './alerts/discord.js';
 import { snapshotAllAccounts } from './finance/index.js';
+import { startApiServer } from './api/server.js';
 import type { PriceUpdate } from './types.js';
 import { kalshiDollarsToCents, type KalshiMarket } from './kalshi/types.js';
 import { createLogger } from './logger.js';
@@ -70,6 +71,9 @@ async function main() {
 
   // Initialize database
   const db = initDatabase(config.dbPath);
+
+  // Start Finance API server
+  startApiServer(db, config.apiPort);
 
   // Initialize REST clients
   const kalshiClient = new KalshiClient(config);

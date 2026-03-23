@@ -22,6 +22,9 @@ export interface Config {
   // LLM
   openrouterApiKey: string;
 
+  // API
+  apiPort: number;
+
   // Database
   dbPath: string;
 }
@@ -56,6 +59,8 @@ export function loadConfig(): Config {
     discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL || '',
 
     openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
+
+    apiPort: parseInt(process.env.API_PORT || '3000', 10),
 
     dbPath: process.env.DB_PATH || 'data/arb.db',
   };
