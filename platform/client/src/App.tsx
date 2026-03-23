@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from "react";
-import { getToken, setToken } from "./lib/api";
+import { getToken, setToken, auth } from "./lib/api";
 import Navbar from "./components/Navbar";
 import HomePage from "./pages/HomePage";
 import AgentDetailPage from "./pages/AgentDetailPage";
 import DashboardPage from "./pages/DashboardPage";
 import PublishPage from "./pages/PublishPage";
 import LoginPage from "./pages/LoginPage";
+import ProfilePage from "./pages/ProfilePage";
 
 type Page =
   | { name: "home" }
   | { name: "agent"; slug: string }
   | { name: "dashboard" }
   | { name: "publish" }
+  | { name: "profile" }
   | { name: "login" };
 
 export default function App() {
@@ -19,10 +21,18 @@ export default function App() {
   const [user, setUser] = useState<{ id: string; name: string; email: string } | null>(null);
 
   useEffect(() => {
-    // Restore user from localStorage
-    const stored = localStorage.getItem("user");
-    if (stored && getToken()) {
-      setUser(JSON.parse(stored));
+    // Validate token with server on mount
+    if (getToken()) {
+      auth.me().then((profile) => {
+        const userData = { id: profile.id, name: profile.name, email: profile.email };
+        setUser(userData);
+        localStorage.setItem("user", JSON.stringify(userData));
+      }).catch(() => {
+        // Token invalid or expired — clear stale session
+        setToken(null);
+        setUser(null);
+        localStorage.removeItem("user");
+      });
     }
   }, []);
 
@@ -61,10 +71,16 @@ export default function App() {
         {page.name === "publish" && user && (
           <PublishPage onNavigate={navigate} />
         )}
+        {page.name === "profile" && user && (
+          <ProfilePage user={user} onUserUpdate={(u) => {
+            setUser(u);
+            localStorage.setItem("user", JSON.stringify(u));
+          }} />
+        )}
         {page.name === "login" && (
           <LoginPage onLogin={handleLogin} />
         )}
-        {(page.name === "dashboard" || page.name === "publish") && !user && (
+        {(page.name === "dashboard" || page.name === "publish" || page.name === "profile") && !user && (
           <LoginPage onLogin={handleLogin} />
         )}
       </main>

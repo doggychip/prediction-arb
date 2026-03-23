@@ -39,7 +39,12 @@ export default function Navbar({ user, onNavigate, onLogout }: Props) {
               >
                 Dashboard
               </button>
-              <span className="text-sm text-indigo-400">{user.name}</span>
+              <button
+                onClick={() => onNavigate({ name: "profile" })}
+                className="text-sm text-indigo-400 hover:text-indigo-300 transition"
+              >
+                {user.name}
+              </button>
               <button
                 onClick={onLogout}
                 className="text-sm text-gray-500 hover:text-red-400 transition"

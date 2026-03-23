@@ -50,6 +50,22 @@ export const auth = {
       "/auth/login",
       { method: "POST", body: JSON.stringify(data) }
     ),
+  me: () =>
+    request<{
+      id: string;
+      name: string;
+      email: string;
+      bio: string | null;
+      avatarUrl: string | null;
+      verified: boolean;
+      createdAt: string;
+      agentCount: number;
+    }>("/auth/me"),
+  updateProfile: (data: { name?: string; bio?: string; avatarUrl?: string }) =>
+    request<{ ok: boolean }>("/auth/me", {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
 };
 
 // Agents

@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { hash, verify } from "argon2";
 import { db } from "../db/index.js";
-import { creators } from "../../shared/schema.js";
-import { createToken } from "../middleware/auth.js";
+import { creators, agents } from "../../shared/schema.js";
+import { createToken, requireAuth } from "../middleware/auth.js";
 import type { RegisterRequest, LoginRequest } from "../../shared/types.js";
 
 const auth = new Hono();
@@ -82,6 +82,63 @@ auth.post("/login", async (c) => {
     token,
     user: { id: user.id, name: user.name, email: user.email },
   });
+});
+
+// GET /auth/me — validate token and return current user profile
+auth.get("/me", requireAuth, async (c) => {
+  const userId = c.get("userId");
+
+  const user = db
+    .select({
+      id: creators.id,
+      name: creators.name,
+      email: creators.email,
+      bio: creators.bio,
+      avatarUrl: creators.avatarUrl,
+      verified: creators.verified,
+      createdAt: creators.createdAt,
+    })
+    .from(creators)
+    .where(eq(creators.id, userId))
+    .get();
+
+  if (!user) {
+    return c.json({ error: "User not found", code: "NOT_FOUND" }, 404);
+  }
+
+  // Count published agents
+  const agentCount = db
+    .select({ count: sql<number>`count(*)` })
+    .from(agents)
+    .where(eq(agents.creatorId, userId))
+    .get();
+
+  return c.json({
+    ...user,
+    agentCount: agentCount?.count || 0,
+  });
+});
+
+// PATCH /auth/me — update profile
+auth.patch("/me", requireAuth, async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json<{ name?: string; bio?: string; avatarUrl?: string }>();
+
+  const updates: Record<string, unknown> = {};
+  if (body.name) updates.name = body.name;
+  if (body.bio !== undefined) updates.bio = body.bio;
+  if (body.avatarUrl !== undefined) updates.avatarUrl = body.avatarUrl;
+
+  if (Object.keys(updates).length === 0) {
+    return c.json({ error: "No fields to update", code: "VALIDATION" }, 400);
+  }
+
+  db.update(creators)
+    .set(updates)
+    .where(eq(creators.id, userId))
+    .run();
+
+  return c.json({ ok: true });
 });
 
 export default auth;
