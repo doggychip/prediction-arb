@@ -20,37 +20,17 @@ import { sendDiscordAlert } from './alerts/discord.js';
 import type { PriceUpdate } from './types.js';
 import { kalshiDollarsToCents, type KalshiMarket } from './kalshi/types.js';
 import { createLogger } from './logger.js';
+import {
+  priceCache,
+  kalshiTickerToPairs,
+  polyTokenToPairs,
+  pushOpportunity,
+  stats,
+  type PairRef,
+} from './engine-state.js';
+import { startApiServer } from './api.js';
 
 const logger = createLogger('main');
-
-// In-memory price cache for matched pairs
-interface PriceCache {
-  kalshiYesBid: number;
-  kalshiYesAsk: number;
-  kalshiNoBid: number;
-  kalshiNoAsk: number;
-  polyYesBid: number;
-  polyYesAsk: number;
-}
-
-const priceCache = new Map<string, PriceCache>(); // key = pairId
-
-// Map from ticker/tokenId to pair info for WS updates
-interface PairRef {
-  pairId: string;
-  kalshiTicker: string;
-  polymarketId: string;
-  polyYesTokenId: string;
-  kalshiTitle: string;
-  polyQuestion: string;
-}
-
-const kalshiTickerToPairs = new Map<string, PairRef[]>();
-const polyTokenToPairs = new Map<string, PairRef[]>();
-
-let statsOppsFound = 0;
-let statsAlertssSent = 0;
-let statsSuppressed = 0;
 
 // Alert cooldown: pairId -> { lastAlertTime, lastNetSpread }
 const alertCooldown = new Map<string, { lastAlertTime: number; lastNetSpread: number }>();
@@ -205,7 +185,16 @@ async function main() {
   const kalshiTickers = Array.from(kalshiTickerToPairs.keys());
   const polyTokenIds = Array.from(polyTokenToPairs.keys());
 
+  // Update shared stats
+  stats.pairsTracked = allPairs.length;
+  stats.kalshiTickers = kalshiTickers.length;
+  stats.polyTokens = polyTokenIds.length;
+
   logger.info(`Tracking ${kalshiTickers.length} Kalshi tickers and ${polyTokenIds.length} Polymarket tokens`);
+
+  // --- Start API server for platform integration ---
+  const apiPort = parseInt(process.env.API_PORT || '3001');
+  startApiServer(apiPort);
 
   // --- Step 4: Start WebSocket connections ---
   const kalshiWs = new KalshiWebSocket(config);
@@ -233,8 +222,8 @@ async function main() {
   const STATS_INTERVAL_MS = 60_000;
   setInterval(() => {
     logger.info(
-      `[Stats] Pairs: ${allPairs.length} | Opps found: ${statsOppsFound} | Alerts sent: ${statsAlertssSent} | ` +
-      `Suppressed: ${statsSuppressed} | Cache size: ${priceCache.size}`,
+      `[Stats] Pairs: ${stats.pairsTracked} | Opps found: ${stats.oppsFound} | Alerts sent: ${stats.alertsSent} | ` +
+      `Suppressed: ${stats.suppressed} | Cache size: ${priceCache.size}`,
     );
   }, STATS_INTERVAL_MS);
 
@@ -328,7 +317,9 @@ function handlePriceUpdate(
 
     // If arb opportunity found, log and alert (with cooldown)
     if (analysis.best) {
-      statsOppsFound++;
+      stats.oppsFound++;
+
+      pushOpportunity(analysis.best);
 
       try {
         insertArbOpportunity(db, analysis.best);
@@ -356,12 +347,12 @@ function handlePriceUpdate(
           ref.kalshiTitle,
           ref.polyQuestion,
         ).then(() => {
-          statsAlertssSent++;
+          stats.alertsSent++;
         }).catch(() => {
           // Already logged inside sendDiscordAlert
         });
       } else {
-        statsSuppressed++;
+        stats.suppressed++;
       }
     }
   }
