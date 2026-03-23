@@ -17,6 +17,7 @@ import { PolymarketWebSocket } from './polymarket/websocket.js';
 import { findMatches, candidatesToPairs } from './matching/matcher.js';
 import { analyzeArb, dollarsToCents, type PairPrices } from './arb/detector.js';
 import { sendDiscordAlert } from './alerts/discord.js';
+import { snapshotAllAccounts } from './finance/index.js';
 import type { PriceUpdate } from './types.js';
 import { kalshiDollarsToCents, type KalshiMarket } from './kalshi/types.js';
 import { createLogger } from './logger.js';
@@ -229,7 +230,12 @@ async function main() {
     polyWs.subscribe(polyTokenIds);
   }
 
-  // --- Step 5: Periodic stats logging ---
+  // --- Step 5: Periodic stats logging & balance snapshots ---
+  // Snapshot account balances on startup and every 15 minutes
+  snapshotAllAccounts(db);
+  const BALANCE_SNAPSHOT_INTERVAL_MS = 15 * 60_000;
+  setInterval(() => snapshotAllAccounts(db), BALANCE_SNAPSHOT_INTERVAL_MS);
+
   const STATS_INTERVAL_MS = 60_000;
   setInterval(() => {
     logger.info(

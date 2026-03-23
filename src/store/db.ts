@@ -107,6 +107,95 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_pair_id ON price_snapshots(pair_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON price_snapshots(timestamp);
 CREATE INDEX IF NOT EXISTS idx_kalshi_status ON kalshi_markets(status);
 CREATE INDEX IF NOT EXISTS idx_poly_active ON polymarket_markets(active);
+
+-- ============================================================
+-- Financial system tables
+-- ============================================================
+
+-- Platform accounts (funded accounts on each exchange or external)
+CREATE TABLE IF NOT EXISTS accounts (
+  id TEXT PRIMARY KEY,
+  platform TEXT NOT NULL,
+  label TEXT NOT NULL,
+  balance_cents INTEGER NOT NULL DEFAULT 0,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  is_active INTEGER NOT NULL DEFAULT 1,
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Immutable transaction ledger
+CREATE TABLE IF NOT EXISTS transactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  type TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  balance_after_cents INTEGER NOT NULL,
+  related_transaction_id INTEGER,
+  reference TEXT,
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Open / closed positions
+CREATE TABLE IF NOT EXISTS positions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  platform TEXT NOT NULL,
+  market_id TEXT NOT NULL,
+  side TEXT NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 0,
+  avg_entry_price_cents INTEGER NOT NULL,
+  total_cost_cents INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  pair_id TEXT REFERENCES market_pairs(id),
+  opened_at TEXT DEFAULT (datetime('now')),
+  closed_at TEXT,
+  updated_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(account_id, market_id, side, status)
+);
+
+-- Individual trade / fill records
+CREATE TABLE IF NOT EXISTS trades (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  position_id INTEGER REFERENCES positions(id),
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  platform TEXT NOT NULL,
+  market_id TEXT NOT NULL,
+  side TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  quantity INTEGER NOT NULL,
+  price_cents INTEGER NOT NULL,
+  total_cents INTEGER NOT NULL,
+  fee_cents INTEGER NOT NULL DEFAULT 0,
+  realized_pnl_cents INTEGER,
+  pair_id TEXT REFERENCES market_pairs(id),
+  external_id TEXT,
+  notes TEXT,
+  executed_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Periodic balance snapshots for time-series reporting
+CREATE TABLE IF NOT EXISTS balance_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  balance_cents INTEGER NOT NULL,
+  unrealized_pnl_cents INTEGER DEFAULT 0,
+  timestamp TEXT DEFAULT (datetime('now'))
+);
+
+-- Financial system indexes
+CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_created ON transactions(created_at);
+CREATE INDEX IF NOT EXISTS idx_positions_account ON positions(account_id);
+CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status);
+CREATE INDEX IF NOT EXISTS idx_positions_pair ON positions(pair_id);
+CREATE INDEX IF NOT EXISTS idx_trades_position ON trades(position_id);
+CREATE INDEX IF NOT EXISTS idx_trades_account ON trades(account_id);
+CREATE INDEX IF NOT EXISTS idx_trades_executed ON trades(executed_at);
+CREATE INDEX IF NOT EXISTS idx_balance_snapshots_account ON balance_snapshots(account_id);
+CREATE INDEX IF NOT EXISTS idx_balance_snapshots_timestamp ON balance_snapshots(timestamp);
 `;
 
 export function initDatabase(dbPath: string): Database.Database {
