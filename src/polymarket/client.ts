@@ -7,6 +7,8 @@ import type {
   PolymarketGetMarketsParams,
 } from './types.js';
 import { createLogger } from '../logger.js';
+import { PolymarketMarketSchema } from '../validation.js';
+import { z } from 'zod';
 
 const logger = createLogger('polymarket-client');
 
@@ -61,11 +63,30 @@ export class PolymarketClient {
   }
 
   async getMarkets(params?: PolymarketGetMarketsParams): Promise<PolymarketMarket[]> {
-    return this.gammaRequest<PolymarketMarket[]>('/markets', params as Record<string, string | number | boolean>);
+    const raw = await this.gammaRequest<unknown[]>('/markets', params as Record<string, string | number | boolean>);
+    if (!Array.isArray(raw)) {
+      logger.error('Polymarket markets response is not an array');
+      return [];
+    }
+    return raw
+      .map((item, i) => {
+        const result = PolymarketMarketSchema.safeParse(item);
+        if (!result.success) {
+          logger.warn(`Polymarket market [${i}] validation failed: ${result.error.message}`);
+          return null;
+        }
+        return result.data as PolymarketMarket;
+      })
+      .filter((m): m is PolymarketMarket => m !== null);
   }
 
   async getMarket(id: string): Promise<PolymarketMarket> {
-    return this.gammaRequest<PolymarketMarket>(`/markets/${encodeURIComponent(id)}`);
+    const raw = await this.gammaRequest<unknown>(`/markets/${encodeURIComponent(id)}`);
+    const validated = PolymarketMarketSchema.safeParse(raw);
+    if (!validated.success) {
+      throw new Error(`Polymarket market validation failed: ${validated.error.message}`);
+    }
+    return validated.data as PolymarketMarket;
   }
 
   // --- CLOB API (orderbook and pricing) ---

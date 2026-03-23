@@ -22,6 +22,7 @@ import type { PriceUpdate } from './types.js';
 import { kalshiDollarsToCents, type KalshiMarket } from './kalshi/types.js';
 import type { PolymarketMarket } from './polymarket/types.js';
 import { createLogger } from './logger.js';
+import { safeJsonParse, StringArraySchema } from './validation.js';
 
 const logger = createLogger('main');
 
@@ -148,15 +149,13 @@ async function main() {
 
   // --- Step 3: Build lookup maps and initialize price cache ---
   for (const row of allPairs) {
-    let polyYesTokenId = '';
-    try {
-      const tokenIds = JSON.parse(row.poly_clob_token_ids || '[]');
-      polyYesTokenId = tokenIds[0] || '';
-    } catch {
-      logger.warn(`Failed to parse clobTokenIds for pair ${row.id}`);
-      continue;
-    }
-
+    const tokenIds = safeJsonParse(
+      row.poly_clob_token_ids || '[]',
+      StringArraySchema,
+      `clobTokenIds for pair ${row.id}`,
+      [],
+    );
+    const polyYesTokenId = tokenIds[0] || '';
     if (!polyYesTokenId) continue;
 
     const ref: PairRef = {
@@ -182,13 +181,16 @@ async function main() {
     if (km && pm) {
       let polyYesBid = 0;
       let polyYesAsk = 0;
-      try {
-        const prices = JSON.parse(pm.outcomePrices || '[]');
-        if (prices[0]) {
-          polyYesBid = dollarsToCents(prices[0]);
-          polyYesAsk = dollarsToCents(prices[0]);
-        }
-      } catch { /* ignore */ }
+      const outcomePrices = safeJsonParse(
+        pm.outcomePrices || '[]',
+        StringArraySchema,
+        `outcomePrices for pair ${row.id}`,
+        [],
+      );
+      if (outcomePrices[0]) {
+        polyYesBid = dollarsToCents(outcomePrices[0]);
+        polyYesAsk = dollarsToCents(outcomePrices[0]);
+      }
 
       priceCache.set(row.id, {
         kalshiYesBid: kalshiDollarsToCents(km.yes_bid_dollars),

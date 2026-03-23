@@ -9,6 +9,7 @@ import type {
 } from './types.js';
 import type { PriceUpdate } from '../types.js';
 import { createLogger } from '../logger.js';
+import { PolymarketWsEventSchema } from '../validation.js';
 
 const logger = createLogger('polymarket-ws');
 
@@ -53,9 +54,14 @@ export class PolymarketWebSocket extends EventEmitter {
       try {
         const parsed = JSON.parse(data.toString());
         // Polymarket may send arrays of events
-        const events: PolymarketWsEvent[] = Array.isArray(parsed) ? parsed : [parsed];
-        for (const event of events) {
-          this.handleEvent(event);
+        const rawEvents = Array.isArray(parsed) ? parsed : [parsed];
+        for (const rawEvent of rawEvents) {
+          const validated = PolymarketWsEventSchema.safeParse(rawEvent);
+          if (!validated.success) {
+            logger.warn('Invalid Polymarket WS event structure', { error: validated.error.message });
+            continue;
+          }
+          this.handleEvent(rawEvent as PolymarketWsEvent);
         }
       } catch (err) {
         logger.error('Failed to parse Polymarket WS message', { error: err });

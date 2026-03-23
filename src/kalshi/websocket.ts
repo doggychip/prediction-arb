@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import type { Config } from '../config.js';
 import type { KalshiWsMessage, KalshiWsSubscribeMessage } from './types.js';
+import { KalshiWsMessageSchema } from '../validation.js';
 import { kalshiDollarsToCents } from './types.js';
 import type { PriceUpdate } from '../types.js';
 import { createLogger } from '../logger.js';
@@ -43,8 +44,13 @@ export class KalshiWebSocket extends EventEmitter {
 
     this.ws.on('message', (data: WebSocket.Data) => {
       try {
-        const msg = JSON.parse(data.toString()) as KalshiWsMessage;
-        this.handleMessage(msg);
+        const raw = JSON.parse(data.toString());
+        const validated = KalshiWsMessageSchema.safeParse(raw);
+        if (!validated.success) {
+          logger.warn('Invalid Kalshi WS message structure', { error: validated.error.message });
+          return;
+        }
+        this.handleMessage(validated.data as KalshiWsMessage);
       } catch (err) {
         logger.error('Failed to parse Kalshi WS message', { error: err });
       }

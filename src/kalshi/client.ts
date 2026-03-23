@@ -9,6 +9,7 @@ import type {
   KalshiGetTradesParams,
 } from './types.js';
 import { createLogger } from '../logger.js';
+import { KalshiMarketsResponseSchema, KalshiMarketResponseSchema } from '../validation.js';
 
 const logger = createLogger('kalshi-client');
 
@@ -84,12 +85,23 @@ export class KalshiClient {
   }
 
   async getMarkets(params?: KalshiGetMarketsParams): Promise<KalshiMarketsResponse> {
-    return this.request<KalshiMarketsResponse>('/markets', params as Record<string, string | number | boolean>);
+    const raw = await this.request<unknown>('/markets', params as Record<string, string | number | boolean>);
+    const validated = KalshiMarketsResponseSchema.safeParse(raw);
+    if (!validated.success) {
+      logger.error('Kalshi markets response validation failed', { error: validated.error.message });
+      throw new Error(`Kalshi API response validation failed: ${validated.error.message}`);
+    }
+    return validated.data as KalshiMarketsResponse;
   }
 
   async getMarket(ticker: string): Promise<KalshiMarket> {
-    const resp = await this.request<KalshiMarketResponse>(`/markets/${encodeURIComponent(ticker)}`);
-    return resp.market;
+    const raw = await this.request<unknown>(`/markets/${encodeURIComponent(ticker)}`);
+    const validated = KalshiMarketResponseSchema.safeParse(raw);
+    if (!validated.success) {
+      logger.error('Kalshi market response validation failed', { error: validated.error.message });
+      throw new Error(`Kalshi API response validation failed: ${validated.error.message}`);
+    }
+    return validated.data.market as KalshiMarket;
   }
 
   async getOrderbook(ticker: string, depth?: number): Promise<KalshiOrderbook> {
