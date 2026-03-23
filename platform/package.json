@@ -10,7 +10,8 @@
     "start": "node dist/server/index.js",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "seed": "tsx server/db/seed.ts"
+    "seed": "tsx server/db/seed.ts",
+    "test:e2e": "tsx ../scripts/e2e-proxy-test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",

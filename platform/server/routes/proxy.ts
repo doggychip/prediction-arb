@@ -11,8 +11,27 @@ import {
 
 const proxyRouter = new Hono();
 
+const AGENT_TIMEOUT_MS = 30_000;
+const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB
+
 function hashKey(key: string): string {
   return createHash("sha256").update(key).digest("hex");
+}
+
+function logUsage(
+  apiKeyId: string,
+  agentId: string,
+  slug: string,
+  statusCode: number,
+  latencyMs: number,
+) {
+  try {
+    db.insert(usageLogs)
+      .values({ apiKeyId, agentId, method: "POST", path: `/call/${slug}`, statusCode, latencyMs })
+      .run();
+  } catch {
+    // Don't let logging failures break the response
+  }
 }
 
 // POST /call/:slug — proxy a call to an agent's endpoint
@@ -102,22 +121,23 @@ proxyRouter.post("/:slug", async (c) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
     });
     statusCode = agentResponse.status;
   } catch (err) {
     const latencyMs = Date.now() - start;
+    const isTimeout =
+      err instanceof DOMException && err.name === "TimeoutError" ||
+      err instanceof Error && err.name === "AbortError";
 
-    db.insert(usageLogs)
-      .values({
-        apiKeyId: keyRecord.id,
-        agentId: agent.id,
-        method: "POST",
-        path: `/call/${slug}`,
-        statusCode: 502,
-        latencyMs,
-      })
-      .run();
+    logUsage(keyRecord.id, agent.id, slug, isTimeout ? 504 : 502, latencyMs);
+
+    if (isTimeout) {
+      return c.json(
+        { error: "Agent did not respond within timeout", code: "GATEWAY_TIMEOUT", timeoutMs: AGENT_TIMEOUT_MS },
+        504
+      );
+    }
 
     return c.json(
       { error: "Agent endpoint unreachable", code: "BAD_GATEWAY" },
@@ -127,21 +147,68 @@ proxyRouter.post("/:slug", async (c) => {
 
   const latencyMs = Date.now() - start;
 
-  // 6. Log usage
-  db.insert(usageLogs)
-    .values({
-      apiKeyId: keyRecord.id,
-      agentId: agent.id,
-      method: "POST",
-      path: `/call/${slug}`,
-      statusCode,
+  // 6. Guard against oversized responses
+  const contentLength = agentResponse.headers.get("content-length");
+  if (contentLength && parseInt(contentLength) > MAX_RESPONSE_BYTES) {
+    logUsage(keyRecord.id, agent.id, slug, 502, latencyMs);
+    return c.json(
+      { error: "Agent response too large", code: "BAD_GATEWAY", maxBytes: MAX_RESPONSE_BYTES },
+      502
+    );
+  }
+
+  // 7. Parse response body safely
+  let output: unknown = null;
+  let parseError = false;
+
+  try {
+    const text = await agentResponse.text();
+    if (text.length > MAX_RESPONSE_BYTES) {
+      logUsage(keyRecord.id, agent.id, slug, 502, latencyMs);
+      return c.json(
+        { error: "Agent response too large", code: "BAD_GATEWAY", maxBytes: MAX_RESPONSE_BYTES },
+        502
+      );
+    }
+    output = JSON.parse(text);
+  } catch {
+    parseError = true;
+  }
+
+  // 8. Log usage
+  logUsage(keyRecord.id, agent.id, slug, statusCode, latencyMs);
+
+  // 9. Handle non-2xx from agent
+  if (statusCode >= 500) {
+    return c.json({
+      error: "Agent returned a server error",
+      code: "BAD_GATEWAY",
+      agentStatus: statusCode,
+      output: parseError ? null : output,
       latencyMs,
-    })
-    .run();
+    }, 502);
+  }
 
-  // 7. Return agent response
-  const output = await agentResponse.json().catch(() => null);
+  if (statusCode >= 400) {
+    return c.json({
+      error: "Agent rejected the request",
+      code: "AGENT_ERROR",
+      agentStatus: statusCode,
+      output: parseError ? null : output,
+      latencyMs,
+    }, 422);
+  }
 
+  if (parseError) {
+    return c.json({
+      error: "Agent returned invalid JSON",
+      code: "BAD_GATEWAY",
+      agentStatus: statusCode,
+      latencyMs,
+    }, 502);
+  }
+
+  // 10. Success
   return c.json({
     output,
     latencyMs,
