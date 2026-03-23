@@ -6,7 +6,8 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "fetch-markets": "tsx scripts/fetch-all-markets.ts",
-    "generate-key": "tsx scripts/generate-rsa-key.ts"
+    "generate-key": "tsx scripts/generate-rsa-key.ts",
+    "test-finance": "tsx scripts/test-finance.ts"
   },
   "dependencies": {
     "@polymarket/clob-client": "latest",
