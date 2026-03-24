@@ -15,6 +15,14 @@ const basePrices: PairPrices = {
 
 const defaultThresholds: ArbThresholds = {
   kalshiFeeRate: 0.07,
+  polymarketFeeRate: 0.02,
+  minSpreadCents: 1,
+  suspectSpreadCents: 20,
+};
+
+const zeroFees: ArbThresholds = {
+  kalshiFeeRate: 0,
+  polymarketFeeRate: 0,
   minSpreadCents: 1,
   suspectSpreadCents: 20,
 };
@@ -57,11 +65,6 @@ describe('analyzeArb', () => {
   });
 
   it('detects arb: buy YES on Kalshi + buy NO on Polymarket', () => {
-    // Kalshi YES ask = 40, Poly YES bid = 65 (so Poly NO ask = 35)
-    // Cost = 40 + 35 = 75, Gross = 25
-    // Fee = (100 - 40) * 0.07 = 4.2 → 4
-    // Net = 25 - 4 = 21 → but this exceeds suspect threshold (20)
-    // So use smaller spread:
     const prices: PairPrices = {
       ...basePrices,
       kalshiYesBid: 43,
@@ -73,14 +76,15 @@ describe('analyzeArb', () => {
     };
 
     // Direction 1: cost = 45 + (100-60) = 45 + 40 = 85, gross = 15
-    // Fee = (100-45) * 0.07 = 55 * 0.07 = 3.85 → 4
-    // Net = 15 - 4 = 11
+    // Kalshi fee = (100-45) * 0.07 = 55 * 0.07 = 3.85 → 4
+    // Poly fee = (100-40) * 0.02 = 60 * 0.02 = 1.2 → 1
+    // Total fees = 5, Net = 15 - 5 = 10
     const result = analyzeArb(prices, defaultThresholds);
     expect(result.best).not.toBeNull();
     expect(result.best!.strategy).toBe('kalshi_yes_poly_no');
     expect(result.best!.bestSpreadCents).toBe(15);
-    expect(result.best!.estimatedFeesCents).toBe(4);
-    expect(result.best!.netSpreadCents).toBe(11);
+    expect(result.best!.estimatedFeesCents).toBe(5);
+    expect(result.best!.netSpreadCents).toBe(10);
   });
 
   it('detects arb: buy NO on Kalshi + buy YES on Polymarket', () => {
@@ -94,30 +98,42 @@ describe('analyzeArb', () => {
       polyYesAsk: 40,
     };
 
-    // Direction 2: cost = 38 + 40 = 78, gross = 22 → suspect!
-    // Direction 1: cost = 62 + (100-38) = 62 + 62 = 124, gross = -24 → negative
-    // With suspect threshold, gross 22 > 20, flagged
+    // Direction 2: cost = 38 + 40 = 78, gross = 22 → suspect at 20
+    // With suspect threshold raised to 25, it passes
     const result = analyzeArb(prices, { ...defaultThresholds, suspectSpreadCents: 25 });
     expect(result.best).not.toBeNull();
     expect(result.best!.strategy).toBe('kalshi_no_poly_yes');
   });
 
-  it('suppresses polarity mismatch (both directions positive)', () => {
-    // Both directions show large positive spreads = inverted match
+  it('accounts for both Kalshi and Polymarket fees', () => {
     const prices: PairPrices = {
       ...basePrices,
-      kalshiYesBid: 20,
-      kalshiYesAsk: 22,
-      kalshiNoBid: 20,
-      kalshiNoAsk: 22,
-      polyYesBid: 20,
-      polyYesAsk: 22,
+      kalshiYesBid: 43,
+      kalshiYesAsk: 45,
+      kalshiNoBid: 53,
+      kalshiNoAsk: 55,
+      polyYesBid: 60,
+      polyYesAsk: 62,
     };
 
-    const result = analyzeArb(prices, defaultThresholds);
-    // Both gross spreads: 100 - (22 + 80) = -2, 100 - (22 + 22) = 56
-    // Only one is large, so this specific case won't trigger polarity mismatch
-    // Let's construct a real polarity mismatch:
+    // With zero fees: gross = 15, net = 15
+    const noFees = analyzeArb(prices, zeroFees);
+    expect(noFees.best).not.toBeNull();
+    expect(noFees.best!.netSpreadCents).toBe(15);
+    expect(noFees.best!.estimatedFeesCents).toBe(0);
+
+    // With only Kalshi fees: net = 15 - 4 = 11
+    const kalshiOnly = analyzeArb(prices, { ...zeroFees, kalshiFeeRate: 0.07 });
+    expect(kalshiOnly.best!.estimatedFeesCents).toBe(4);
+    expect(kalshiOnly.best!.netSpreadCents).toBe(11);
+
+    // With both fees: net = 15 - 5 = 10
+    const bothFees = analyzeArb(prices, defaultThresholds);
+    expect(bothFees.best!.estimatedFeesCents).toBe(5);
+    expect(bothFees.best!.netSpreadCents).toBe(10);
+  });
+
+  it('suppresses polarity mismatch (both directions positive)', () => {
     const mismatchPrices: PairPrices = {
       ...basePrices,
       kalshiYesBid: 30,
@@ -127,11 +143,10 @@ describe('analyzeArb', () => {
       polyYesBid: 30,
       polyYesAsk: 30,
     };
-    // Direction 1: cost = 30 + (100-30) = 100, gross = 0
-    // Direction 2: cost = 30 + 30 = 60, gross = 40
-    // gross2 > 20 but gross1 = 0, so not polarity mismatch but suspect single direction
-    const result2 = analyzeArb(mismatchPrices, defaultThresholds);
-    expect(result2.best).toBeNull();
+    // Direction 1: cost = 30 + 70 = 100, gross = 0
+    // Direction 2: cost = 30 + 30 = 60, gross = 40 → suspect single direction
+    const result = analyzeArb(mismatchPrices, defaultThresholds);
+    expect(result.best).toBeNull();
   });
 
   it('suppresses suspect spread (single direction too high)', () => {
@@ -145,7 +160,6 @@ describe('analyzeArb', () => {
       polyYesAsk: 22,
     };
 
-    // Direction 1: cost = 72 + (100-20) = 72 + 80 = 152, gross = -52
     // Direction 2: cost = 28 + 22 = 50, gross = 50 → suspect (>20)
     const result = analyzeArb(prices, defaultThresholds);
     expect(result.best).toBeNull();
@@ -162,12 +176,9 @@ describe('analyzeArb', () => {
       polyYesAsk: 52,
     };
 
-    // Direction 1: cost = 50 + (100-52) = 50 + 48 = 98, gross = 2
-    // Fee = (100-50)*0.07 = 3.5 → 4
-    // Net = 2 - 4 = -2 → no arb with standard fees
-
-    // With 0% fee:
-    const result = analyzeArb(prices, { ...defaultThresholds, kalshiFeeRate: 0 });
+    // Direction 1: cost = 50 + 48 = 98, gross = 2
+    // With 0% fees: net = 2
+    const result = analyzeArb(prices, zeroFees);
     expect(result.best).not.toBeNull();
     expect(result.best!.netSpreadCents).toBe(2);
   });
@@ -183,7 +194,6 @@ describe('analyzeArb', () => {
       polyYesAsk: 0,
     };
 
-    // Should not crash
     const result = analyzeArb(prices, defaultThresholds);
     expect(result.direction1).toBeDefined();
     expect(result.direction2).toBeDefined();
@@ -201,7 +211,6 @@ describe('analyzeArb', () => {
     };
 
     const result = analyzeArb(prices, defaultThresholds);
-    // kalshiNoAsk should be derived as 100 - kalshiYesBid = 55
     // Direction 1: cost = 47 + (100-60) = 87, gross = 13
     expect(result.direction1.grossSpread).toBe(13);
   });

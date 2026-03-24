@@ -71,7 +71,9 @@ export function upsertKalshiMarkets(db: Database.Database, markets: KalshiMarket
 
 export function getActiveKalshiMarkets(db: Database.Database): KalshiMarket[] {
   // Note: DB rows have snake_case columns matching KalshiMarket field names
-  return db.prepare("SELECT * FROM kalshi_markets WHERE status IN ('open', 'active')").all() as KalshiMarket[];
+  return db
+    .prepare("SELECT * FROM kalshi_markets WHERE status IN ('open', 'active')")
+    .all() as KalshiMarket[];
 }
 
 // --- Polymarket Markets ---
@@ -139,7 +141,9 @@ export function upsertPolymarketMarkets(db: Database.Database, markets: Polymark
 }
 
 export function getActivePolymarketMarkets(db: Database.Database): PolymarketMarket[] {
-  return db.prepare("SELECT * FROM polymarket_markets WHERE active = 1 AND closed = 0").all() as PolymarketMarket[];
+  return db
+    .prepare('SELECT * FROM polymarket_markets WHERE active = 1 AND closed = 0')
+    .all() as PolymarketMarket[];
 }
 
 // --- Market Pairs ---
@@ -190,24 +194,32 @@ export function upsertMarketPair(db: Database.Database, pair: MarketPair): void 
 }
 
 export function getApprovedPairs(db: Database.Database): MarketPairRow[] {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT mp.*, km.title as kalshi_title, pm.question as poly_question,
            pm.clob_token_ids as poly_clob_token_ids
     FROM market_pairs mp
     JOIN kalshi_markets km ON mp.kalshi_ticker = km.ticker
     JOIN polymarket_markets pm ON mp.polymarket_id = pm.id
     WHERE mp.status IN ('approved', 'pending_review')
-  `).all() as MarketPairRow[];
+  `,
+    )
+    .all() as MarketPairRow[];
 }
 
 export function getAllPairs(db: Database.Database): MarketPairRow[] {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT mp.*, km.title as kalshi_title, pm.question as poly_question,
            pm.clob_token_ids as poly_clob_token_ids
     FROM market_pairs mp
     JOIN kalshi_markets km ON mp.kalshi_ticker = km.ticker
     JOIN polymarket_markets pm ON mp.polymarket_id = pm.id
-  `).all() as MarketPairRow[];
+  `,
+    )
+    .all() as MarketPairRow[];
 }
 
 // --- Arb Opportunities ---
@@ -257,13 +269,15 @@ export function pruneOldData(
   snapshotRetentionDays: number,
   arbRetentionDays: number,
 ): { snapshotsDeleted: number; arbsDeleted: number } {
-  const snapshotResult = db.prepare(
-    `DELETE FROM price_snapshots WHERE timestamp < datetime('now', '-' || ? || ' days')`,
-  ).run(snapshotRetentionDays);
+  const snapshotResult = db
+    .prepare(`DELETE FROM price_snapshots WHERE timestamp < datetime('now', '-' || ? || ' days')`)
+    .run(snapshotRetentionDays);
 
-  const arbResult = db.prepare(
-    `DELETE FROM arb_opportunities WHERE detected_at < datetime('now', '-' || ? || ' days')`,
-  ).run(arbRetentionDays);
+  const arbResult = db
+    .prepare(
+      `DELETE FROM arb_opportunities WHERE detected_at < datetime('now', '-' || ? || ' days')`,
+    )
+    .run(arbRetentionDays);
 
   return {
     snapshotsDeleted: snapshotResult.changes,
@@ -272,7 +286,9 @@ export function pruneOldData(
 }
 
 export function getRecentOpportunities(db: Database.Database, limit = 50): any[] {
-  return db.prepare(`
+  return db
+    .prepare(
+      `
     SELECT ao.*, mp.kalshi_ticker, mp.polymarket_id,
            km.title as kalshi_title, pm.question as poly_question
     FROM arb_opportunities ao
@@ -281,7 +297,9 @@ export function getRecentOpportunities(db: Database.Database, limit = 50): any[]
     JOIN polymarket_markets pm ON ao.polymarket_id = pm.id
     ORDER BY ao.detected_at DESC
     LIMIT ?
-  `).all(limit);
+  `,
+    )
+    .all(limit);
 }
 
 // --- Price Snapshots ---
@@ -297,12 +315,14 @@ export function insertPriceSnapshot(
     spreadCents: number;
   },
 ): void {
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO price_snapshots (
       pair_id, kalshi_yes_bid, kalshi_yes_ask,
       poly_yes_bid, poly_yes_ask, spread_cents
     ) VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
+  `,
+  ).run(
     snapshot.pairId,
     snapshot.kalshiYesBid,
     snapshot.kalshiYesAsk,

@@ -24,6 +24,7 @@ export interface Config {
 
   // Arb detection thresholds
   kalshiFeeRate: number;
+  polymarketFeeRate: number;
   minSpreadCents: number;
   suspectSpreadCents: number;
   alertCooldownMs: number;
@@ -73,6 +74,7 @@ export function loadConfig(): Config {
 
     // Arb detection thresholds (configurable via env)
     kalshiFeeRate: parseFloat(process.env.KALSHI_FEE_RATE || '0.07'),
+    polymarketFeeRate: parseFloat(process.env.POLYMARKET_FEE_RATE || '0.02'),
     minSpreadCents: parseInt(process.env.MIN_SPREAD_CENTS || '1', 10),
     suspectSpreadCents: parseInt(process.env.SUSPECT_SPREAD_CENTS || '20', 10),
     alertCooldownMs: parseInt(process.env.ALERT_COOLDOWN_MS || String(5 * 60 * 1000), 10),

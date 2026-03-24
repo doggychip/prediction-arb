@@ -8,7 +8,6 @@ import type {
 } from './types.js';
 import { createLogger } from '../logger.js';
 import { PolymarketMarketSchema } from '../validation.js';
-import { z } from 'zod';
 
 const logger = createLogger('polymarket-client');
 
@@ -25,7 +24,10 @@ export class PolymarketClient {
 
   // --- Gamma API (market discovery) ---
 
-  private async gammaRequest<T>(path: string, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
+  private async gammaRequest<T>(
+    path: string,
+    params?: Record<string, string | number | boolean | undefined>,
+  ): Promise<T> {
     const url = new URL(`${this.gammaUrl}${path}`);
     if (params) {
       for (const [key, value] of Object.entries(params)) {
@@ -43,7 +45,7 @@ export class PolymarketClient {
     let response: Response;
     try {
       response = await fetch(url.toString(), {
-        headers: { 'Accept': 'application/json' },
+        headers: { Accept: 'application/json' },
         signal: controller.signal,
       });
     } finally {
@@ -52,18 +54,26 @@ export class PolymarketClient {
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      throw new Error(`Polymarket Gamma API error ${response.status}: ${response.statusText} — ${body}`);
+      throw new Error(
+        `Polymarket Gamma API error ${response.status}: ${response.statusText} — ${body}`,
+      );
     }
 
     return response.json() as Promise<T>;
   }
 
   async getEvents(params?: PolymarketGetEventsParams): Promise<PolymarketEvent[]> {
-    return this.gammaRequest<PolymarketEvent[]>('/events', params as Record<string, string | number | boolean>);
+    return this.gammaRequest<PolymarketEvent[]>(
+      '/events',
+      params as Record<string, string | number | boolean>,
+    );
   }
 
   async getMarkets(params?: PolymarketGetMarketsParams): Promise<PolymarketMarket[]> {
-    const raw = await this.gammaRequest<unknown[]>('/markets', params as Record<string, string | number | boolean>);
+    const raw = await this.gammaRequest<unknown[]>(
+      '/markets',
+      params as Record<string, string | number | boolean>,
+    );
     if (!Array.isArray(raw)) {
       logger.error('Polymarket markets response is not an array');
       return [];
@@ -109,10 +119,12 @@ export class PolymarketClient {
     for (let i = 0; i < tokenIds.length; i += BATCH_SIZE) {
       const batch = tokenIds.slice(i, i + BATCH_SIZE);
       const batchResults = await Promise.all(
-        batch.map((id) => this.getOrderBook(id).catch((err) => {
-          logger.warn(`Failed to get orderbook for ${id}: ${err.message}`);
-          return null;
-        })),
+        batch.map((id) =>
+          this.getOrderBook(id).catch((err) => {
+            logger.warn(`Failed to get orderbook for ${id}: ${err.message}`);
+            return null;
+          }),
+        ),
       );
       results.push(...batchResults);
     }

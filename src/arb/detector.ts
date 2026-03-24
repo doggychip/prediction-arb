@@ -1,16 +1,18 @@
-import type { ArbOpportunity, ArbAnalysis, ArbDirectionResult, ArbStrategy } from './types.js';
+import type { ArbOpportunity, ArbAnalysis, ArbDirectionResult } from './types.js';
 import { createLogger } from '../logger.js';
 
 const logger = createLogger('arb-detector');
 
 export interface ArbThresholds {
   kalshiFeeRate: number;
+  polymarketFeeRate: number;
   minSpreadCents: number;
   suspectSpreadCents: number;
 }
 
 const DEFAULT_THRESHOLDS: ArbThresholds = {
   kalshiFeeRate: 0.07,
+  polymarketFeeRate: 0.02,
   minSpreadCents: 1,
   suspectSpreadCents: 20,
 };
@@ -56,6 +58,15 @@ function estimateKalshiFee(askCents: number, feeRate: number): number {
 }
 
 /**
+ * Estimate Polymarket fees on a trade.
+ * Polymarket charges ~2% on profit (winnings - cost).
+ */
+function estimatePolymarketFee(askCents: number, feeRate: number): number {
+  const profit = Math.max(0, 100 - askCents);
+  return Math.round(profit * feeRate);
+}
+
+/**
  * Analyze arb opportunities for a matched market pair.
  *
  * Two directions:
@@ -67,31 +78,35 @@ function estimateKalshiFee(askCents: number, feeRate: number): number {
  *    kalshi_no_ask = 100 - kalshi_yes_bid
  *    Cost = (100 - kalshi_yes_bid) + poly_yes_ask
  */
-export function analyzeArb(prices: PairPrices, thresholds: ArbThresholds = DEFAULT_THRESHOLDS): ArbAnalysis {
+export function analyzeArb(
+  prices: PairPrices,
+  thresholds: ArbThresholds = DEFAULT_THRESHOLDS,
+): ArbAnalysis {
   // Derive NO prices from YES prices
   // Kalshi provides both sides directly; Polymarket we compute from YES
   const polyNoAsk = 100 - prices.polyYesBid; // cost to buy NO on Poly
   const polyNoBid = 100 - prices.polyYesAsk; // what you'd get selling NO on Poly
 
-  const kalshiNoAsk = prices.kalshiNoAsk > 0 ? prices.kalshiNoAsk : (100 - prices.kalshiYesBid);
-  const kalshiNoBid = prices.kalshiNoBid > 0 ? prices.kalshiNoBid : (100 - prices.kalshiYesAsk);
+  const kalshiNoAsk = prices.kalshiNoAsk > 0 ? prices.kalshiNoAsk : 100 - prices.kalshiYesBid;
+  const kalshiNoBid = prices.kalshiNoBid > 0 ? prices.kalshiNoBid : 100 - prices.kalshiYesAsk;
 
   // Direction 1: Buy YES on Kalshi + Buy NO on Polymarket
   const cost1 = prices.kalshiYesAsk + polyNoAsk;
   const gross1 = 100 - cost1;
-  const fees1 = estimateKalshiFee(prices.kalshiYesAsk, thresholds.kalshiFeeRate);
+  const kalshiFees1 = estimateKalshiFee(prices.kalshiYesAsk, thresholds.kalshiFeeRate);
+  const polyFees1 = estimatePolymarketFee(polyNoAsk, thresholds.polymarketFeeRate);
+  const fees1 = kalshiFees1 + polyFees1;
   const net1 = gross1 - fees1;
 
   // Direction 2: Buy NO on Kalshi + Buy YES on Polymarket
   const cost2 = kalshiNoAsk + prices.polyYesAsk;
   const gross2 = 100 - cost2;
-  const fees2 = estimateKalshiFee(kalshiNoAsk, thresholds.kalshiFeeRate);
+  const kalshiFees2 = estimateKalshiFee(kalshiNoAsk, thresholds.kalshiFeeRate);
+  const polyFees2 = estimatePolymarketFee(prices.polyYesAsk, thresholds.polymarketFeeRate);
+  const fees2 = kalshiFees2 + polyFees2;
   const net2 = gross2 - fees2;
 
-  const availableDepth = Math.min(
-    prices.kalshiDepthDollars ?? 0,
-    prices.polyDepthDollars ?? 0,
-  );
+  const availableDepth = Math.min(prices.kalshiDepthDollars ?? 0, prices.polyDepthDollars ?? 0);
 
   const direction1: ArbDirectionResult = {
     strategy: 'kalshi_yes_poly_no',
@@ -119,10 +134,13 @@ export function analyzeArb(prices: PairPrices, thresholds: ArbThresholds = DEFAU
   // Polarity check: if BOTH directions show large positive spreads,
   // the markets are almost certainly mismatched (inverted yes/no).
   // A real arb only exists in one direction — the other should be negative.
-  if (direction1.grossSpread > thresholds.suspectSpreadCents && direction2.grossSpread > thresholds.suspectSpreadCents) {
+  if (
+    direction1.grossSpread > thresholds.suspectSpreadCents &&
+    direction2.grossSpread > thresholds.suspectSpreadCents
+  ) {
     logger.warn(
       `Polarity mismatch: both directions positive (${direction1.grossSpread}¢ / ${direction2.grossSpread}¢) | ` +
-      `${prices.kalshiTicker} ↔ ${prices.polymarketId} — skipping as likely inverted match`,
+        `${prices.kalshiTicker} ↔ ${prices.polymarketId} — skipping as likely inverted match`,
     );
     return { direction1, direction2, best: null };
   }
@@ -131,7 +149,7 @@ export function analyzeArb(prices: PairPrices, thresholds: ArbThresholds = DEFAU
   if (bestDirection.grossSpread > thresholds.suspectSpreadCents) {
     logger.warn(
       `Suspect spread: ${bestDirection.strategy} gross=${bestDirection.grossSpread}¢ | ` +
-      `${prices.kalshiTicker} ↔ ${prices.polymarketId} — flagged as likely false positive`,
+        `${prices.kalshiTicker} ↔ ${prices.polymarketId} — flagged as likely false positive`,
     );
     return { direction1, direction2, best: null };
   }
@@ -159,7 +177,7 @@ export function analyzeArb(prices: PairPrices, thresholds: ArbThresholds = DEFAU
 
     logger.info(
       `Arb found: ${bestDirection.strategy} | gross=${bestDirection.grossSpread}¢ net=${bestDirection.netSpread}¢ | ` +
-      `${prices.kalshiTicker} ↔ ${prices.polymarketId}`,
+        `${prices.kalshiTicker} ↔ ${prices.polymarketId}`,
     );
   }
 

@@ -79,7 +79,7 @@ async function main() {
   // --- Step 1: Fetch all active markets ---
   logger.info('Fetching active markets from both platforms...');
 
-  let kalshiMarkets: KalshiMarket[] = [];
+  let kalshiMarkets: KalshiMarket[] = []; // eslint-disable-line no-useless-assignment
   try {
     // Kalshi API: filter=open returns status='active' in response; mve_filter=exclude skips parlays server-side
     const allKalshi = await kalshiClient.getAllMarkets({ status: 'open', mve_filter: 'exclude' });
@@ -98,27 +98,32 @@ async function main() {
       return true;
     });
     upsertKalshiMarkets(db, kalshiMarkets);
-    logger.info(`Stored ${kalshiMarkets.length} active Kalshi markets (filtered by volume + valid prices)`);
+    logger.info(
+      `Stored ${kalshiMarkets.length} active Kalshi markets (filtered by volume + valid prices)`,
+    );
   } catch (err) {
     logger.error('Failed to fetch Kalshi markets', { error: (err as Error).message });
     kalshiMarkets = getActiveKalshiMarkets(db);
     logger.info(`Using ${kalshiMarkets.length} cached Kalshi markets from DB`);
   }
 
-  let polyMarkets: PolymarketMarket[] = [];
+  let polyMarkets: PolymarketMarket[] = []; // eslint-disable-line no-useless-assignment
   try {
     // Only fetch active, non-closed markets with orderbook enabled
     const fetched = await polyClient.getAllMarkets({ active: true, closed: false });
     // Filter to tradeable markets with volume
-    polyMarkets = fetched.filter((m) =>
-      m.active &&
-      !m.closed &&
-      m.enableOrderBook &&
-      m.clobTokenIds &&
-      (m.volume24hr > 0 || parseFloat(m.volume || '0') > 100)
+    polyMarkets = fetched.filter(
+      (m) =>
+        m.active &&
+        !m.closed &&
+        m.enableOrderBook &&
+        m.clobTokenIds &&
+        (m.volume24hr > 0 || parseFloat(m.volume || '0') > 100),
     );
     upsertPolymarketMarkets(db, polyMarkets);
-    logger.info(`Stored ${polyMarkets.length} active Polymarket markets (filtered by orderbook + volume)`);
+    logger.info(
+      `Stored ${polyMarkets.length} active Polymarket markets (filtered by orderbook + volume)`,
+    );
   } catch (err) {
     logger.error('Failed to fetch Polymarket markets', { error: (err as Error).message });
     polyMarkets = getActivePolymarketMarkets(db);
@@ -144,7 +149,9 @@ async function main() {
   // Load all pairs (including previously approved ones)
   const allPairs = getApprovedPairs(db);
   if (allPairs.length === 0) {
-    logger.warn('No market pairs found. The engine will wait for matches. Consider lowering the confidence threshold or adding manual pairs.');
+    logger.warn(
+      'No market pairs found. The engine will wait for matches. Consider lowering the confidence threshold or adding manual pairs.',
+    );
   }
 
   // --- Step 3: Build lookup maps and initialize price cache ---
@@ -207,7 +214,9 @@ async function main() {
   const kalshiTickers = Array.from(kalshiTickerToPairs.keys());
   const polyTokenIds = Array.from(polyTokenToPairs.keys());
 
-  logger.info(`Tracking ${kalshiTickers.length} Kalshi tickers and ${polyTokenIds.length} Polymarket tokens`);
+  logger.info(
+    `Tracking ${kalshiTickers.length} Kalshi tickers and ${polyTokenIds.length} Polymarket tokens`,
+  );
 
   // --- Step 4: Start WebSocket connections ---
   const kalshiWs = new KalshiWebSocket(config);
@@ -246,7 +255,7 @@ async function main() {
 
     logger.info(
       `[Stats] Pairs: ${allPairs.length} | Opps found: ${statsOppsFound} | Alerts sent: ${statsAlertsSent} | ` +
-      `Suppressed: ${statsSuppressed} | Cache size: ${priceCache.size}`,
+        `Suppressed: ${statsSuppressed} | Cache size: ${priceCache.size}`,
     );
   }, STATS_INTERVAL_MS);
 
@@ -255,7 +264,9 @@ async function main() {
     try {
       const result = pruneOldData(db, config.snapshotRetentionDays, config.arbRetentionDays);
       if (result.snapshotsDeleted > 0 || result.arbsDeleted > 0) {
-        logger.info(`[Prune] Deleted ${result.snapshotsDeleted} old snapshots, ${result.arbsDeleted} old arb records`);
+        logger.info(
+          `[Prune] Deleted ${result.snapshotsDeleted} old snapshots, ${result.arbsDeleted} old arb records`,
+        );
       }
     } catch (err) {
       logger.error('Failed to prune old data', { error: (err as Error).message });
@@ -338,6 +349,7 @@ function handlePriceUpdate(
 
     const arbThresholds: ArbThresholds = {
       kalshiFeeRate: config.kalshiFeeRate,
+      polymarketFeeRate: config.polymarketFeeRate,
       minSpreadCents: config.minSpreadCents,
       suspectSpreadCents: config.suspectSpreadCents,
     };
@@ -372,25 +384,26 @@ function handlePriceUpdate(
       const now = Date.now();
       const cooldownEntry = alertCooldown.get(ref.pairId);
       const spreadChanged = cooldownEntry
-        ? Math.abs(analysis.best.netSpreadCents - cooldownEntry.lastNetSpread) >= config.spreadChangeThreshold
+        ? Math.abs(analysis.best.netSpreadCents - cooldownEntry.lastNetSpread) >=
+          config.spreadChangeThreshold
         : true;
       const cooldownExpired = cooldownEntry
-        ? (now - cooldownEntry.lastAlertTime) >= config.alertCooldownMs
+        ? now - cooldownEntry.lastAlertTime >= config.alertCooldownMs
         : true;
 
       if (cooldownExpired || spreadChanged) {
-        alertCooldown.set(ref.pairId, { lastAlertTime: now, lastNetSpread: analysis.best.netSpreadCents });
-
-        sendDiscordAlert(
-          config.discordWebhookUrl,
-          analysis.best,
-          ref.kalshiTitle,
-          ref.polyQuestion,
-        ).then(() => {
-          statsAlertsSent++;
-        }).catch(() => {
-          // Already logged inside sendDiscordAlert
+        alertCooldown.set(ref.pairId, {
+          lastAlertTime: now,
+          lastNetSpread: analysis.best.netSpreadCents,
         });
+
+        sendDiscordAlert(config.discordWebhookUrl, analysis.best, ref.kalshiTitle, ref.polyQuestion)
+          .then(() => {
+            statsAlertsSent++;
+          })
+          .catch(() => {
+            // Already logged inside sendDiscordAlert
+          });
       } else {
         statsSuppressed++;
       }

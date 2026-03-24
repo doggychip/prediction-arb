@@ -135,11 +135,13 @@ describe('findMatches', () => {
 
 describe('candidatesToPairs', () => {
   it('converts candidates to MarketPair objects', () => {
-    const candidates = [{
-      kalshiMarket: makeKalshiMarket('K1', 'Test'),
-      polymarketMarket: makePolyMarket('P1', 'Test'),
-      confidence: 0.85,
-    }];
+    const candidates = [
+      {
+        kalshiMarket: makeKalshiMarket('K1', 'Test'),
+        polymarketMarket: makePolyMarket('P1', 'Test'),
+        confidence: 0.85,
+      },
+    ];
 
     const pairs = candidatesToPairs(candidates);
     expect(pairs).toHaveLength(1);
@@ -153,8 +155,16 @@ describe('candidatesToPairs', () => {
 
   it('generates unique IDs for each pair', () => {
     const candidates = [
-      { kalshiMarket: makeKalshiMarket('K1', 'Test 1'), polymarketMarket: makePolyMarket('P1', 'Test 1'), confidence: 0.8 },
-      { kalshiMarket: makeKalshiMarket('K2', 'Test 2'), polymarketMarket: makePolyMarket('P2', 'Test 2'), confidence: 0.7 },
+      {
+        kalshiMarket: makeKalshiMarket('K1', 'Test 1'),
+        polymarketMarket: makePolyMarket('P1', 'Test 1'),
+        confidence: 0.8,
+      },
+      {
+        kalshiMarket: makeKalshiMarket('K2', 'Test 2'),
+        polymarketMarket: makePolyMarket('P2', 'Test 2'),
+        confidence: 0.7,
+      },
     ];
 
     const pairs = candidatesToPairs(candidates);

@@ -58,7 +58,9 @@ export class PolymarketWebSocket extends EventEmitter {
         for (const rawEvent of rawEvents) {
           const validated = PolymarketWsEventSchema.safeParse(rawEvent);
           if (!validated.success) {
-            logger.warn('Invalid Polymarket WS event structure', { error: validated.error.message });
+            logger.warn('Invalid Polymarket WS event structure', {
+              error: validated.error.message,
+            });
             continue;
           }
           this.handleEvent(rawEvent as PolymarketWsEvent);
@@ -186,7 +188,9 @@ export class PolymarketWebSocket extends EventEmitter {
     );
     this.reconnectAttempts++;
 
-    logger.info(`Reconnecting to Polymarket WS in ${backoff}ms (attempt ${this.reconnectAttempts})`);
+    logger.info(
+      `Reconnecting to Polymarket WS in ${backoff}ms (attempt ${this.reconnectAttempts})`,
+    );
 
     this.reconnectTimer = setTimeout(() => {
       this.connect();

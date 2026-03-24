@@ -23,10 +23,6 @@ interface KalshiMarketsResponse {
   cursor: string;
 }
 
-interface KalshiMarketResponse {
-  market: KalshiMarket;
-}
-
 interface KalshiOrderbookResponse {
   orderbook: KalshiOrderbook;
 }
@@ -45,7 +41,10 @@ export class KalshiClient {
     this.requestTimeoutMs = config.requestTimeoutMs;
   }
 
-  private async request<T>(path: string, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
+  private async request<T>(
+    path: string,
+    params?: Record<string, string | number | boolean | undefined>,
+  ): Promise<T> {
     const url = new URL(`${this.baseUrl}${path}`);
     if (params) {
       for (const [key, value] of Object.entries(params)) {
@@ -64,7 +63,7 @@ export class KalshiClient {
     try {
       response = await fetch(url.toString(), {
         headers: {
-          'Accept': 'application/json',
+          Accept: 'application/json',
         },
         signal: controller.signal,
       });
@@ -81,11 +80,17 @@ export class KalshiClient {
   }
 
   async getEvents(params?: KalshiGetEventsParams): Promise<KalshiEventsResponse> {
-    return this.request<KalshiEventsResponse>('/events', params as Record<string, string | number | boolean>);
+    return this.request<KalshiEventsResponse>(
+      '/events',
+      params as Record<string, string | number | boolean>,
+    );
   }
 
   async getMarkets(params?: KalshiGetMarketsParams): Promise<KalshiMarketsResponse> {
-    const raw = await this.request<unknown>('/markets', params as Record<string, string | number | boolean>);
+    const raw = await this.request<unknown>(
+      '/markets',
+      params as Record<string, string | number | boolean>,
+    );
     const validated = KalshiMarketsResponseSchema.safeParse(raw);
     if (!validated.success) {
       logger.error('Kalshi markets response validation failed', { error: validated.error.message });
@@ -114,7 +119,10 @@ export class KalshiClient {
   }
 
   async getTrades(params?: KalshiGetTradesParams): Promise<KalshiTradesResponse> {
-    return this.request<KalshiTradesResponse>('/markets/trades', params as Record<string, string | number | boolean>);
+    return this.request<KalshiTradesResponse>(
+      '/markets/trades',
+      params as Record<string, string | number | boolean>,
+    );
   }
 
   /**
@@ -127,10 +135,16 @@ export class KalshiClient {
     const limit = params?.limit ?? 1000;
 
     do {
-      const response = await this.getMarkets({ ...params, limit, cursor: cursor as string | undefined });
+      const response = await this.getMarkets({
+        ...params,
+        limit,
+        cursor: cursor as string | undefined,
+      });
       allMarkets.push(...response.markets);
       cursor = response.cursor || undefined;
-      logger.info(`Fetched ${response.markets.length} Kalshi markets (total: ${allMarkets.length})`);
+      logger.info(
+        `Fetched ${response.markets.length} Kalshi markets (total: ${allMarkets.length})`,
+      );
     } while (cursor);
 
     return allMarkets;

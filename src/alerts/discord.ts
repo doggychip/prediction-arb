@@ -16,11 +16,14 @@ function formatStrategy(strategy: string): string {
   return strategy;
 }
 
-function buildEmbed(opp: ArbOpportunity, kalshiTitle?: string, polyQuestion?: string): DiscordEmbed {
+function buildEmbed(
+  opp: ArbOpportunity,
+  kalshiTitle?: string,
+  polyQuestion?: string,
+): DiscordEmbed {
   const marketName = kalshiTitle || opp.kalshiTicker;
-  const spreadPct = opp.bestSpreadCents > 0
-    ? ((opp.bestSpreadCents / 100) * 100).toFixed(1)
-    : '0.0';
+  const spreadPct =
+    opp.bestSpreadCents > 0 ? ((opp.bestSpreadCents / 100) * 100).toFixed(1) : '0.0';
 
   return {
     title: 'Arb Opportunity Detected',
@@ -53,7 +56,8 @@ function buildEmbed(opp: ArbOpportunity, kalshiTitle?: string, polyQuestion?: st
       },
       {
         name: 'Depth',
-        value: opp.availableDepthDollars > 0 ? `$${opp.availableDepthDollars.toFixed(0)}` : 'Unknown',
+        value:
+          opp.availableDepthDollars > 0 ? `$${opp.availableDepthDollars.toFixed(0)}` : 'Unknown',
         inline: true,
       },
     ],

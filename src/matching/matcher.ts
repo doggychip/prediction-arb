@@ -22,15 +22,46 @@ function normalize(text: string): string {
  * Extract meaningful tokens from text, filtering out common stop words.
  */
 const STOP_WORDS = new Set([
-  'will', 'the', 'be', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of',
-  'by', 'is', 'it', 'or', 'and', 'with', 'this', 'that', 'what', 'how',
-  'does', 'do', 'than', 'more', 'less', 'above', 'below', 'over', 'under',
-  'before', 'after', 'yes', 'no', 'between',
+  'will',
+  'the',
+  'be',
+  'a',
+  'an',
+  'in',
+  'on',
+  'at',
+  'to',
+  'for',
+  'of',
+  'by',
+  'is',
+  'it',
+  'or',
+  'and',
+  'with',
+  'this',
+  'that',
+  'what',
+  'how',
+  'does',
+  'do',
+  'than',
+  'more',
+  'less',
+  'above',
+  'below',
+  'over',
+  'under',
+  'before',
+  'after',
+  'yes',
+  'no',
+  'between',
 ]);
 
 function extractTokens(text: string): Set<string> {
   const normalized = normalize(text);
-  const tokens = normalized.split(' ').filter(t => t.length > 1 && !STOP_WORDS.has(t));
+  const tokens = normalized.split(' ').filter((t) => t.length > 1 && !STOP_WORDS.has(t));
   return new Set(tokens);
 }
 
@@ -43,9 +74,7 @@ function tokenSimilarity(tokensA: Set<string>, tokensB: Set<string>): number {
 
   let intersection = 0;
   // Iterate over the smaller set for performance
-  const [smaller, larger] = tokensA.size <= tokensB.size
-    ? [tokensA, tokensB]
-    : [tokensB, tokensA];
+  const [smaller, larger] = tokensA.size <= tokensB.size ? [tokensA, tokensB] : [tokensB, tokensA];
 
   for (const t of smaller) {
     if (larger.has(t)) intersection++;
@@ -86,7 +115,7 @@ export interface MatchCandidate {
 
 /**
  * Find potential market pair matches between Kalshi and Polymarket markets.
- * 
+ *
  * Uses an inverted index approach for efficiency:
  * 1. Build token index over Polymarket markets
  * 2. For each Kalshi market, find Polymarket candidates that share at least N tokens
@@ -97,7 +126,9 @@ export function findMatches(
   polymarketMarkets: PolymarketMarket[],
   minConfidence = 0.35,
 ): MatchCandidate[] {
-  logger.info(`Matching ${kalshiMarkets.length} Kalshi × ${polymarketMarkets.length} Polymarket markets`);
+  logger.info(
+    `Matching ${kalshiMarkets.length} Kalshi × ${polymarketMarkets.length} Polymarket markets`,
+  );
   const startTime = Date.now();
 
   // Pre-process Polymarket markets
@@ -164,13 +195,13 @@ export function findMatches(
 
   const elapsed = Date.now() - startTime;
   logger.info(
-    `Found ${candidates.length} match candidates (scored ${pairsScored} pairs in ${elapsed}ms)`
+    `Found ${candidates.length} match candidates (scored ${pairsScored} pairs in ${elapsed}ms)`,
   );
 
   // Log top matches for visibility
   for (const c of candidates.slice(0, 20)) {
     logger.info(
-      `  Match (${(c.confidence * 100).toFixed(1)}%): "${c.kalshiMarket.title}" ↔ "${c.polymarketMarket.question}"`
+      `  Match (${(c.confidence * 100).toFixed(1)}%): "${c.kalshiMarket.title}" ↔ "${c.polymarketMarket.question}"`,
     );
   }
 
