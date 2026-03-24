@@ -12,7 +12,12 @@ import type {
   RecordTradeInput,
   BalanceSummary,
   PnLSummary,
+  PositionMtm,
+  UnrealizedPnLReport,
+  DailySummary,
+  FeeBreakdown,
 } from './types.js';
+import { getCurrentMarketPrice } from './prices.js';
 
 // ── Row types (snake_case as stored in SQLite) ─────────────────────
 
@@ -716,4 +721,206 @@ export function verifyAccountBalance(db: Database.Database, accountId: string): 
     expected,
     actual: acct.balance_cents,
   };
+}
+
+// ── Unrealized P&L (mark-to-market) ────────────────────────────────
+
+export function getUnrealizedPnL(db: Database.Database): UnrealizedPnLReport {
+  const positions = db.prepare(
+    "SELECT * FROM positions WHERE status = 'open' ORDER BY opened_at DESC",
+  ).all() as PositionRow[];
+
+  let totalUnrealized = 0;
+  let totalCostBasis = 0;
+  let totalCurrentValue = 0;
+  let withPrice = 0;
+  let withoutPrice = 0;
+
+  const mtmPositions: PositionMtm[] = positions.map((pos) => {
+    const currentPrice = pos.pair_id
+      ? getCurrentMarketPrice(pos.pair_id, pos.platform as 'kalshi' | 'polymarket', pos.side as 'yes' | 'no')
+      : undefined;
+
+    const currentValue = currentPrice != null ? currentPrice * pos.quantity : null;
+    const unrealizedPnl = currentValue != null ? currentValue - pos.total_cost_cents : null;
+
+    if (currentPrice != null) {
+      withPrice++;
+      totalUnrealized += unrealizedPnl!;
+      totalCurrentValue += currentValue!;
+    } else {
+      withoutPrice++;
+    }
+    totalCostBasis += pos.total_cost_cents;
+
+    return {
+      positionId: pos.id,
+      accountId: pos.account_id,
+      platform: pos.platform,
+      marketId: pos.market_id,
+      side: pos.side,
+      quantity: pos.quantity,
+      avgEntryPriceCents: pos.avg_entry_price_cents,
+      currentPriceCents: currentPrice ?? null,
+      unrealizedPnlCents: unrealizedPnl,
+      totalCostCents: pos.total_cost_cents,
+      currentValueCents: currentValue,
+      pairId: pos.pair_id ?? undefined,
+    };
+  });
+
+  return {
+    timestamp: new Date().toISOString(),
+    positions: mtmPositions,
+    totalUnrealizedPnlCents: totalUnrealized,
+    totalCostBasisCents: totalCostBasis,
+    totalCurrentValueCents: totalCurrentValue,
+    positionsWithPriceData: withPrice,
+    positionsWithoutPriceData: withoutPrice,
+  };
+}
+
+// ── Enhanced reporting ──────────────────────────────────────────────
+
+export function getDailySummary(db: Database.Database, date: string): DailySummary {
+  const dayStart = `${date} 00:00:00`;
+  const dayEnd = `${date} 23:59:59`;
+
+  const tradeStats = db.prepare(`
+    SELECT COUNT(*) as count,
+           COALESCE(SUM(total_cents), 0) as volume,
+           COALESCE(SUM(realized_pnl_cents), 0) as pnl,
+           COALESCE(SUM(fee_cents), 0) as fees
+    FROM trades WHERE executed_at >= @start AND executed_at <= @end
+  `).get({ start: dayStart, end: dayEnd }) as {
+    count: number; volume: number; pnl: number; fees: number;
+  };
+
+  const deposits = db.prepare(`
+    SELECT COUNT(*) as count, COALESCE(SUM(amount_cents), 0) as total
+    FROM transactions WHERE type = 'deposit' AND created_at >= @start AND created_at <= @end
+  `).get({ start: dayStart, end: dayEnd }) as { count: number; total: number };
+
+  const withdrawals = db.prepare(`
+    SELECT COUNT(*) as count, COALESCE(SUM(amount_cents), 0) as total
+    FROM transactions WHERE type = 'withdrawal' AND created_at >= @start AND created_at <= @end
+  `).get({ start: dayStart, end: dayEnd }) as { count: number; total: number };
+
+  const positionsOpened = db.prepare(
+    "SELECT COUNT(*) as count FROM positions WHERE opened_at >= @start AND opened_at <= @end",
+  ).get({ start: dayStart, end: dayEnd }) as { count: number };
+
+  const positionsClosed = db.prepare(
+    "SELECT COUNT(*) as count FROM positions WHERE closed_at >= @start AND closed_at <= @end AND status IN ('closed', 'settled')",
+  ).get({ start: dayStart, end: dayEnd }) as { count: number };
+
+  return {
+    date,
+    tradeCount: tradeStats.count,
+    totalVolumeCents: tradeStats.volume,
+    realizedPnlCents: tradeStats.pnl,
+    feesCents: tradeStats.fees,
+    netPnlCents: tradeStats.pnl - tradeStats.fees,
+    depositsCountCents: { count: deposits.count, totalCents: deposits.total },
+    withdrawalsCountCents: { count: withdrawals.count, totalCents: withdrawals.total },
+    positionsOpened: positionsOpened.count,
+    positionsClosed: positionsClosed.count,
+  };
+}
+
+export function getWeeklySummary(db: Database.Database, startDate: string, endDate: string): DailySummary[] {
+  const days: DailySummary[] = [];
+  const current = new Date(startDate);
+  const end = new Date(endDate);
+
+  while (current <= end) {
+    const dateStr = current.toISOString().split('T')[0];
+    days.push(getDailySummary(db, dateStr));
+    current.setDate(current.getDate() + 1);
+  }
+
+  return days;
+}
+
+export function getFeeBreakdown(db: Database.Database, startDate: string, endDate: string): FeeBreakdown {
+  const rows = db.prepare(`
+    SELECT platform, account_id, fee_cents, total_cents
+    FROM trades
+    WHERE executed_at >= @start AND executed_at <= @end AND fee_cents > 0
+  `).all({ start: startDate, end: endDate }) as Array<{
+    platform: string; account_id: string; fee_cents: number; total_cents: number;
+  }>;
+
+  const byPlatform: Record<string, number> = {};
+  const byAccountMap: Record<string, { feesCents: number }> = {};
+  let totalFees = 0;
+  let totalVolume = 0;
+
+  for (const row of rows) {
+    totalFees += row.fee_cents;
+    totalVolume += row.total_cents;
+    byPlatform[row.platform] = (byPlatform[row.platform] ?? 0) + row.fee_cents;
+    if (!byAccountMap[row.account_id]) byAccountMap[row.account_id] = { feesCents: 0 };
+    byAccountMap[row.account_id].feesCents += row.fee_cents;
+  }
+
+  // Look up labels
+  const byAccount = Object.entries(byAccountMap).map(([accountId, data]) => {
+    const acct = db.prepare('SELECT label FROM accounts WHERE id = @id').get({ id: accountId }) as { label: string } | undefined;
+    return { accountId, label: acct?.label ?? accountId, feesCents: data.feesCents };
+  });
+
+  return {
+    periodStart: startDate,
+    periodEnd: endDate,
+    totalFeesCents: totalFees,
+    byPlatform,
+    byAccount,
+    avgFeePerTradeCents: rows.length > 0 ? Math.round(totalFees / rows.length) : 0,
+    feeAsPercentOfVolume: totalVolume > 0 ? Math.round((totalFees / totalVolume) * 10000) / 100 : 0,
+  };
+}
+
+// ── CSV export helpers ──────────────────────────────────────────────
+
+export function getTradesForExport(db: Database.Database, startDate?: string, endDate?: string): Trade[] {
+  let sql = 'SELECT * FROM trades';
+  const params: Record<string, string> = {};
+
+  if (startDate && endDate) {
+    sql += ' WHERE executed_at >= @start AND executed_at <= @end';
+    params.start = startDate;
+    params.end = endDate;
+  }
+  sql += ' ORDER BY executed_at ASC';
+
+  const rows = db.prepare(sql).all(params) as TradeRow[];
+  return rows.map(toTrade);
+}
+
+export function getTransactionsForExport(db: Database.Database, accountId?: string, startDate?: string, endDate?: string): Transaction[] {
+  let sql = 'SELECT * FROM transactions WHERE 1=1';
+  const params: Record<string, string> = {};
+
+  if (accountId) {
+    sql += ' AND account_id = @account_id';
+    params.account_id = accountId;
+  }
+  if (startDate) {
+    sql += ' AND created_at >= @start';
+    params.start = startDate;
+  }
+  if (endDate) {
+    sql += ' AND created_at <= @end';
+    params.end = endDate;
+  }
+  sql += ' ORDER BY created_at ASC';
+
+  const rows = db.prepare(sql).all(params) as TransactionRow[];
+  return rows.map(toTransaction);
+}
+
+export function getAllPositionsForExport(db: Database.Database): Position[] {
+  const rows = db.prepare('SELECT * FROM positions ORDER BY opened_at DESC').all() as PositionRow[];
+  return rows.map(toPosition);
 }

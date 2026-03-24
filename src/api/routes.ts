@@ -21,6 +21,19 @@ import {
   getBalanceSummary,
   getPnLSummary,
   verifyAccountBalance,
+  getUnrealizedPnL,
+  getDailySummary,
+  getWeeklySummary,
+  getFeeBreakdown,
+  getTradesForExport,
+  getTransactionsForExport,
+  getAllPositionsForExport,
+  settleMarket,
+  settlePosition,
+  getSettlementHistory,
+  verifyAllLedgerIntegrity,
+  checkExternalBalances,
+  getPositionReconciliation,
 } from '../finance/index.js';
 
 function qstr(val: unknown): string {
@@ -31,6 +44,17 @@ function qint(val: unknown, fallback: number): number {
   if (val == null) return fallback;
   const n = parseInt(String(val), 10);
   return Number.isNaN(n) ? fallback : n;
+}
+
+function toCsvRow(values: (string | number | null | undefined)[]): string {
+  return values.map((v) => {
+    if (v == null) return '';
+    const s = String(v);
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  }).join(',');
 }
 
 export function createFinanceRouter(db: Database.Database): Router {
@@ -177,12 +201,151 @@ export function createFinanceRouter(db: Database.Database): Router {
     res.json(getPnLSummary(db, start, end));
   });
 
+  router.get('/reports/unrealized-pnl', (_req, res) => {
+    res.json(getUnrealizedPnL(db));
+  });
+
+  router.get('/reports/daily-summary', (req, res) => {
+    const date = req.query.date ? qstr(req.query.date) : new Date().toISOString().split('T')[0];
+    res.json(getDailySummary(db, date));
+  });
+
+  router.get('/reports/weekly-summary', (req, res) => {
+    const end = req.query.end ? qstr(req.query.end) : new Date().toISOString().split('T')[0];
+    const startDefault = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+    const start = req.query.start ? qstr(req.query.start) : startDefault;
+    res.json(getWeeklySummary(db, start, end));
+  });
+
+  router.get('/reports/fee-breakdown', (req, res) => {
+    const start = req.query.start ? qstr(req.query.start) : '2000-01-01';
+    const end = req.query.end ? qstr(req.query.end) : '2099-12-31';
+    res.json(getFeeBreakdown(db, start, end));
+  });
+
   router.get('/accounts/:id/verify', (req, res) => {
     try {
       res.json(verifyAccountBalance(db, qstr(req.params.id)));
     } catch (err) {
       res.status(404).json({ error: (err as Error).message });
     }
+  });
+
+  // ── Settlement ────────────────────────────────────────────────────
+
+  router.post('/settlement/market', (req, res) => {
+    try {
+      const { marketId, outcome } = req.body;
+      if (!marketId || !outcome) {
+        res.status(400).json({ error: 'marketId and outcome (yes/no) are required' });
+        return;
+      }
+      if (outcome !== 'yes' && outcome !== 'no') {
+        res.status(400).json({ error: 'outcome must be "yes" or "no"' });
+        return;
+      }
+      const results = settleMarket(db, marketId, outcome);
+      res.json({ settled: results.length, results });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  router.post('/settlement/position/:id', (req, res) => {
+    try {
+      const { outcome } = req.body;
+      if (outcome !== 'yes' && outcome !== 'no') {
+        res.status(400).json({ error: 'outcome must be "yes" or "no"' });
+        return;
+      }
+      const result = settlePosition(db, qint(req.params.id, 0), outcome);
+      if (!result) {
+        res.status(404).json({ error: 'Position not found or already settled' });
+        return;
+      }
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  router.get('/settlement/history', (req, res) => {
+    const limit = qint(req.query.limit, 50);
+    res.json(getSettlementHistory(db, limit));
+  });
+
+  // ── Reconciliation ────────────────────────────────────────────────
+
+  router.get('/reconciliation/ledger-integrity', (_req, res) => {
+    res.json(verifyAllLedgerIntegrity(db));
+  });
+
+  router.post('/reconciliation/external-balances', (req, res) => {
+    try {
+      const { balances } = req.body;
+      if (!Array.isArray(balances)) {
+        res.status(400).json({ error: 'balances must be an array of { accountId, reportedBalanceCents }' });
+        return;
+      }
+      res.json(checkExternalBalances(db, balances));
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
+  router.get('/reconciliation/positions', (_req, res) => {
+    res.json(getPositionReconciliation(db));
+  });
+
+  // ── CSV Exports ───────────────────────────────────────────────────
+
+  router.get('/exports/trades.csv', (req, res) => {
+    const start = req.query.start ? qstr(req.query.start) : undefined;
+    const end = req.query.end ? qstr(req.query.end) : undefined;
+    const trades = getTradesForExport(db, start, end);
+
+    const header = 'id,positionId,accountId,platform,marketId,side,direction,quantity,priceCents,totalCents,feeCents,realizedPnlCents,pairId,externalId,executedAt';
+    const rows = trades.map((t) => toCsvRow([
+      t.id, t.positionId, t.accountId, t.platform, t.marketId, t.side, t.direction,
+      t.quantity, t.priceCents, t.totalCents, t.feeCents, t.realizedPnlCents,
+      t.pairId, t.externalId, t.executedAt,
+    ]));
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="trades.csv"');
+    res.send([header, ...rows].join('\n'));
+  });
+
+  router.get('/exports/transactions.csv', (req, res) => {
+    const accountId = req.query.accountId ? qstr(req.query.accountId) : undefined;
+    const start = req.query.start ? qstr(req.query.start) : undefined;
+    const end = req.query.end ? qstr(req.query.end) : undefined;
+    const txns = getTransactionsForExport(db, accountId, start, end);
+
+    const header = 'id,accountId,type,amountCents,balanceAfterCents,relatedTransactionId,reference,notes,createdAt';
+    const rows = txns.map((t) => toCsvRow([
+      t.id, t.accountId, t.type, t.amountCents, t.balanceAfterCents,
+      t.relatedTransactionId, t.reference, t.notes, t.createdAt,
+    ]));
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="transactions.csv"');
+    res.send([header, ...rows].join('\n'));
+  });
+
+  router.get('/exports/positions.csv', (_req, res) => {
+    const positions = getAllPositionsForExport(db);
+
+    const header = 'id,accountId,platform,marketId,side,quantity,avgEntryPriceCents,totalCostCents,status,pairId,openedAt,closedAt';
+    const rows = positions.map((p) => toCsvRow([
+      p.id, p.accountId, p.platform, p.marketId, p.side, p.quantity,
+      p.avgEntryPriceCents, p.totalCostCents, p.status, p.pairId,
+      p.openedAt, p.closedAt,
+    ]));
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="positions.csv"');
+    res.send([header, ...rows].join('\n'));
   });
 
   return router;

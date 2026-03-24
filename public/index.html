@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prediction Arb — Bookkeeping Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a;
+    --text: #e1e4eb; --muted: #8b8fa3; --accent: #6c8cff;
+    --green: #4ade80; --red: #f87171; --yellow: #fbbf24;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); color: var(--text); font-size: 13px; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 16px; }
+  header { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  header h1 { font-size: 16px; font-weight: 600; }
+  header .refresh { background: var(--surface); border: 1px solid var(--border); color: var(--accent); padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; }
+  header .refresh:hover { background: var(--border); }
+
+  .tabs { display: flex; gap: 2px; margin-bottom: 16px; background: var(--surface); border-radius: 6px; padding: 3px; }
+  .tab { padding: 8px 16px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 4px; font-family: inherit; font-size: 12px; }
+  .tab.active { background: var(--accent); color: #fff; }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; }
+  .card h3 { font-size: 11px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; letter-spacing: 0.5px; }
+  .card .value { font-size: 24px; font-weight: 700; }
+  .card .sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  .positive { color: var(--green); }
+  .negative { color: var(--red); }
+  .neutral { color: var(--yellow); }
+
+  table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 12px; }
+  th { background: var(--bg); color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(108,140,255,0.05); }
+
+  .section-title { font-size: 14px; font-weight: 600; margin: 20px 0 10px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .badge-open { background: rgba(74,222,128,0.15); color: var(--green); }
+  .badge-closed { background: rgba(139,143,163,0.15); color: var(--muted); }
+  .badge-settled { background: rgba(108,140,255,0.15); color: var(--accent); }
+  .badge-ok { background: rgba(74,222,128,0.15); color: var(--green); }
+  .badge-error { background: rgba(248,113,113,0.15); color: var(--red); }
+
+  .export-bar { display: flex; gap: 8px; margin: 12px 0; }
+  .export-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 11px; text-decoration: none; }
+  .export-btn:hover { background: var(--border); }
+
+  .settle-form { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; margin-bottom: 16px; }
+  .settle-form label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; }
+  .settle-form input, .settle-form select { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 4px; font-family: inherit; font-size: 12px; margin-bottom: 8px; width: 100%; }
+  .settle-form button { background: var(--accent); color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px; }
+  .settle-form .row { display: flex; gap: 12px; }
+  .settle-form .row > div { flex: 1; }
+
+  .empty { text-align: center; padding: 40px; color: var(--muted); }
+  #settle-result { margin-top: 12px; padding: 12px; border-radius: 4px; display: none; }
+  .loading { text-align: center; padding: 20px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Prediction Arb — Bookkeeping</h1>
+    <button class="refresh" onclick="refreshAll()">Refresh</button>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showPanel('overview')">Overview</button>
+    <button class="tab" onclick="showPanel('accounts')">Accounts</button>
+    <button class="tab" onclick="showPanel('positions')">Positions</button>
+    <button class="tab" onclick="showPanel('trades')">Trades</button>
+    <button class="tab" onclick="showPanel('settlement')">Settlement</button>
+    <button class="tab" onclick="showPanel('reconciliation')">Reconciliation</button>
+    <button class="tab" onclick="showPanel('exports')">Exports</button>
+  </div>
+
+  <!-- OVERVIEW -->
+  <div id="overview" class="panel active">
+    <div class="grid" id="overview-cards"></div>
+    <div class="section-title">Unrealized P&L (Mark-to-Market)</div>
+    <div id="unrealized-pnl"></div>
+    <div class="section-title">Today's Summary</div>
+    <div id="daily-summary"></div>
+  </div>
+
+  <!-- ACCOUNTS -->
+  <div id="accounts" class="panel">
+    <div id="accounts-table"></div>
+  </div>
+
+  <!-- POSITIONS -->
+  <div id="positions" class="panel">
+    <div id="positions-table"></div>
+  </div>
+
+  <!-- TRADES -->
+  <div id="trades" class="panel">
+    <div id="trades-table"></div>
+  </div>
+
+  <!-- SETTLEMENT -->
+  <div id="settlement" class="panel">
+    <div class="settle-form">
+      <div class="section-title" style="margin-top:0">Settle a Market</div>
+      <div class="row">
+        <div>
+          <label>Market ID</label>
+          <input type="text" id="settle-market-id" placeholder="e.g. KALSHI-TICKER or polymarket-id">
+        </div>
+        <div>
+          <label>Outcome</label>
+          <select id="settle-outcome"><option value="yes">YES</option><option value="no">NO</option></select>
+        </div>
+      </div>
+      <button onclick="settleMarketAction()">Settle Market</button>
+      <div id="settle-result"></div>
+    </div>
+    <div class="section-title">Settlement History</div>
+    <div id="settlement-history"></div>
+  </div>
+
+  <!-- RECONCILIATION -->
+  <div id="reconciliation" class="panel">
+    <div class="section-title">Ledger Integrity Check</div>
+    <div id="ledger-integrity"></div>
+    <div class="section-title" style="margin-top:20px">Open Positions for Reconciliation</div>
+    <div id="position-recon"></div>
+  </div>
+
+  <!-- EXPORTS -->
+  <div id="exports" class="panel">
+    <div class="card">
+      <h3>Download CSV Exports</h3>
+      <div class="export-bar" style="margin-top:12px">
+        <a class="export-btn" href="/api/exports/trades.csv">All Trades</a>
+        <a class="export-btn" href="/api/exports/transactions.csv">All Transactions</a>
+        <a class="export-btn" href="/api/exports/positions.csv">All Positions</a>
+      </div>
+      <div class="sub" style="margin-top:8px">Add ?start=YYYY-MM-DD&end=YYYY-MM-DD for date filtering on trades/transactions</div>
+    </div>
+    <div class="section-title">Fee Breakdown</div>
+    <div id="fee-breakdown"></div>
+  </div>
+</div>
+
+<script>
+const API = '/api';
+
+function $(id) { return document.getElementById(id); }
+function cents(c) { return (c / 100).toFixed(2); }
+function pnlClass(c) { return c > 0 ? 'positive' : c < 0 ? 'negative' : 'neutral'; }
+function pnlSign(c) { return c > 0 ? '+' : ''; }
+function statusBadge(s) { return `<span class="badge badge-${s}">${s}</span>`; }
+
+function showPanel(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  $(id).classList.add('active');
+  document.querySelector(`.tab[onclick="showPanel('${id}')"]`).classList.add('active');
+}
+
+async function api(path) {
+  const r = await fetch(API + path);
+  return r.json();
+}
+
+async function loadOverview() {
+  const [balance, pnl, unrealized, daily] = await Promise.all([
+    api('/reports/balance-summary'),
+    api('/reports/pnl'),
+    api('/reports/unrealized-pnl'),
+    api('/reports/daily-summary'),
+  ]);
+
+  $('overview-cards').innerHTML = `
+    <div class="card">
+      <h3>Total Balance</h3>
+      <div class="value">$${cents(balance.totalBalanceCents)}</div>
+      <div class="sub">${balance.byAccount.length} active account(s)</div>
+    </div>
+    <div class="card">
+      <h3>Realized P&L (All Time)</h3>
+      <div class="value ${pnlClass(pnl.netPnlCents)}">${pnlSign(pnl.netPnlCents)}$${cents(pnl.netPnlCents)}</div>
+      <div class="sub">${pnl.tradeCount} trades | Fees: $${cents(pnl.totalFeesCents)}</div>
+    </div>
+    <div class="card">
+      <h3>Unrealized P&L</h3>
+      <div class="value ${pnlClass(unrealized.totalUnrealizedPnlCents)}">${pnlSign(unrealized.totalUnrealizedPnlCents)}$${cents(unrealized.totalUnrealizedPnlCents)}</div>
+      <div class="sub">Cost basis: $${cents(unrealized.totalCostBasisCents)} | ${unrealized.positionsWithPriceData} priced, ${unrealized.positionsWithoutPriceData} unpriced</div>
+    </div>
+    <div class="card">
+      <h3>Today's Net P&L</h3>
+      <div class="value ${pnlClass(daily.netPnlCents)}">${pnlSign(daily.netPnlCents)}$${cents(daily.netPnlCents)}</div>
+      <div class="sub">${daily.tradeCount} trades | Vol: $${cents(daily.totalVolumeCents)}</div>
+    </div>
+  `;
+
+  // Unrealized P&L table
+  if (unrealized.positions.length === 0) {
+    $('unrealized-pnl').innerHTML = '<div class="empty">No open positions</div>';
+  } else {
+    $('unrealized-pnl').innerHTML = `<table>
+      <tr><th>Position</th><th>Platform</th><th>Market</th><th>Side</th><th>Qty</th><th>Avg Entry</th><th>Current</th><th>Unrealized P&L</th></tr>
+      ${unrealized.positions.map(p => `<tr>
+        <td>#${p.positionId}</td><td>${p.platform}</td><td>${p.marketId}</td><td>${p.side}</td>
+        <td>${p.quantity}</td><td>${p.avgEntryPriceCents}¢</td>
+        <td>${p.currentPriceCents != null ? p.currentPriceCents + '¢' : '—'}</td>
+        <td class="${pnlClass(p.unrealizedPnlCents)}">${p.unrealizedPnlCents != null ? pnlSign(p.unrealizedPnlCents) + '$' + cents(p.unrealizedPnlCents) : '—'}</td>
+      </tr>`).join('')}
+    </table>`;
+  }
+
+  // Daily summary
+  $('daily-summary').innerHTML = `<div class="grid">
+    <div class="card"><h3>Deposits</h3><div class="value">$${cents(daily.depositsCountCents.totalCents)}</div><div class="sub">${daily.depositsCountCents.count} deposit(s)</div></div>
+    <div class="card"><h3>Withdrawals</h3><div class="value">$${cents(daily.withdrawalsCountCents.totalCents)}</div><div class="sub">${daily.withdrawalsCountCents.count} withdrawal(s)</div></div>
+    <div class="card"><h3>Positions Opened</h3><div class="value">${daily.positionsOpened}</div></div>
+    <div class="card"><h3>Positions Closed</h3><div class="value">${daily.positionsClosed}</div></div>
+  </div>`;
+}
+
+async function loadAccounts() {
+  const accounts = await api('/accounts');
+  if (accounts.length === 0) {
+    $('accounts-table').innerHTML = '<div class="empty">No accounts</div>';
+    return;
+  }
+  $('accounts-table').innerHTML = `<table>
+    <tr><th>ID</th><th>Platform</th><th>Label</th><th>Balance</th><th>Currency</th><th>Status</th><th>Created</th></tr>
+    ${accounts.map(a => `<tr>
+      <td>${a.id}</td><td>${a.platform}</td><td>${a.label}</td>
+      <td>$${cents(a.balanceCents)}</td><td>${a.currency}</td>
+      <td>${a.isActive ? statusBadge('ok') : statusBadge('closed')}</td>
+      <td>${a.createdAt}</td>
+    </tr>`).join('')}
+  </table>`;
+}
+
+async function loadPositions() {
+  const positions = await api('/positions');
+  if (positions.length === 0) {
+    $('positions-table').innerHTML = '<div class="empty">No open positions</div>';
+    return;
+  }
+  $('positions-table').innerHTML = `<table>
+    <tr><th>ID</th><th>Account</th><th>Platform</th><th>Market</th><th>Side</th><th>Qty</th><th>Avg Price</th><th>Cost</th><th>Status</th><th>Opened</th></tr>
+    ${positions.map(p => `<tr>
+      <td>#${p.id}</td><td>${p.accountId}</td><td>${p.platform}</td><td>${p.marketId}</td>
+      <td>${p.side}</td><td>${p.quantity}</td><td>${p.avgEntryPriceCents}¢</td>
+      <td>$${cents(p.totalCostCents)}</td><td>${statusBadge(p.status)}</td><td>${p.openedAt}</td>
+    </tr>`).join('')}
+  </table>`;
+}
+
+async function loadTrades() {
+  const trades = await api('/trades/recent?limit=100');
+  if (trades.length === 0) {
+    $('trades-table').innerHTML = '<div class="empty">No trades recorded</div>';
+    return;
+  }
+  $('trades-table').innerHTML = `<table>
+    <tr><th>ID</th><th>Account</th><th>Platform</th><th>Market</th><th>Side</th><th>Dir</th><th>Qty</th><th>Price</th><th>Total</th><th>Fee</th><th>P&L</th><th>Time</th></tr>
+    ${trades.map(t => `<tr>
+      <td>#${t.id}</td><td>${t.accountId}</td><td>${t.platform}</td><td>${t.marketId}</td>
+      <td>${t.side}</td><td>${t.direction}</td><td>${t.quantity}</td><td>${t.priceCents}¢</td>
+      <td>$${cents(t.totalCents)}</td><td>$${cents(t.feeCents)}</td>
+      <td class="${pnlClass(t.realizedPnlCents)}">${t.realizedPnlCents != null ? pnlSign(t.realizedPnlCents) + '$' + cents(t.realizedPnlCents) : '—'}</td>
+      <td>${t.executedAt}</td>
+    </tr>`).join('')}
+  </table>`;
+}
+
+async function loadSettlement() {
+  const history = await api('/settlement/history');
+  if (history.length === 0) {
+    $('settlement-history').innerHTML = '<div class="empty">No settlements yet</div>';
+    return;
+  }
+  $('settlement-history').innerHTML = `<table>
+    <tr><th>Position</th><th>Account</th><th>Platform</th><th>Market</th><th>Side</th><th>Qty</th><th>Entry</th><th>Outcome</th><th>Payout</th><th>P&L</th><th>Settled</th></tr>
+    ${history.map(s => `<tr>
+      <td>#${s.positionId}</td><td>${s.accountId}</td><td>${s.platform}</td><td>${s.marketId}</td>
+      <td>${s.side}</td><td>${s.quantity}</td><td>${s.avgEntryPriceCents}¢</td>
+      <td>${s.outcome}</td><td>$${cents(s.totalPayoutCents)}</td>
+      <td class="${pnlClass(s.realizedPnlCents)}">${pnlSign(s.realizedPnlCents)}$${cents(s.realizedPnlCents)}</td>
+      <td>${s.settledAt}</td>
+    </tr>`).join('')}
+  </table>`;
+}
+
+async function loadReconciliation() {
+  const [integrity, positions] = await Promise.all([
+    api('/reconciliation/ledger-integrity'),
+    api('/reconciliation/positions'),
+  ]);
+
+  if (integrity.accounts.length === 0) {
+    $('ledger-integrity').innerHTML = '<div class="empty">No accounts to verify</div>';
+  } else {
+    $('ledger-integrity').innerHTML = `
+      <div class="card" style="margin-bottom:12px">
+        <h3>Overall Status</h3>
+        <div class="value">${integrity.allConsistent ? '<span class="positive">All Consistent</span>' : '<span class="negative">Discrepancies Found</span>'}</div>
+        <div class="sub">Total discrepancy: $${cents(integrity.totalDiscrepancyCents)}</div>
+      </div>
+      <table>
+        <tr><th>Account</th><th>Platform</th><th>Balance</th><th>Last Txn Balance</th><th>Transactions</th><th>Status</th><th>Errors</th></tr>
+        ${integrity.accounts.map(a => `<tr>
+          <td>${a.accountId} (${a.label})</td><td>${a.platform}</td>
+          <td>$${cents(a.currentBalanceCents)}</td>
+          <td>${a.lastTransactionBalanceCents != null ? '$' + cents(a.lastTransactionBalanceCents) : '—'}</td>
+          <td>${a.transactionCount}</td>
+          <td>${a.isConsistent ? statusBadge('ok') : statusBadge('error')}</td>
+          <td>${a.errors.length > 0 ? a.errors.join('; ') : '—'}</td>
+        </tr>`).join('')}
+      </table>`;
+  }
+
+  if (positions.length === 0) {
+    $('position-recon').innerHTML = '<div class="empty">No open positions</div>';
+  } else {
+    $('position-recon').innerHTML = `<table>
+      <tr><th>Account</th><th>Platform</th><th>Market</th><th>Side</th><th>Qty</th><th>Avg Price</th><th>Cost</th></tr>
+      ${positions.map(p => `<tr>
+        <td>${p.accountId}</td><td>${p.platform}</td><td>${p.marketId}</td>
+        <td>${p.side}</td><td>${p.recordedQuantity}</td><td>${p.avgEntryPriceCents}¢</td>
+        <td>$${cents(p.totalCostCents)}</td>
+      </tr>`).join('')}
+    </table>`;
+  }
+}
+
+async function loadFeeBreakdown() {
+  const fees = await api('/reports/fee-breakdown');
+  $('fee-breakdown').innerHTML = `<div class="grid">
+    <div class="card"><h3>Total Fees</h3><div class="value">$${cents(fees.totalFeesCents)}</div></div>
+    <div class="card"><h3>Avg Fee/Trade</h3><div class="value">${fees.avgFeePerTradeCents}¢</div></div>
+    <div class="card"><h3>Fee % of Volume</h3><div class="value">${fees.feeAsPercentOfVolume}%</div></div>
+  </div>
+  ${Object.keys(fees.byPlatform).length > 0 ? `<table style="margin-top:12px">
+    <tr><th>Platform</th><th>Fees</th></tr>
+    ${Object.entries(fees.byPlatform).map(([p, f]) => `<tr><td>${p}</td><td>$${cents(f)}</td></tr>`).join('')}
+  </table>` : ''}
+  ${fees.byAccount.length > 0 ? `<table style="margin-top:12px">
+    <tr><th>Account</th><th>Label</th><th>Fees</th></tr>
+    ${fees.byAccount.map(a => `<tr><td>${a.accountId}</td><td>${a.label}</td><td>$${cents(a.feesCents)}</td></tr>`).join('')}
+  </table>` : ''}`;
+}
+
+async function settleMarketAction() {
+  const marketId = $('settle-market-id').value.trim();
+  const outcome = $('settle-outcome').value;
+  const el = $('settle-result');
+
+  if (!marketId) { el.style.display = 'block'; el.style.background = 'rgba(248,113,113,0.1)'; el.textContent = 'Market ID is required'; return; }
+
+  try {
+    const r = await fetch(API + '/settlement/market', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ marketId, outcome }),
+    });
+    const data = await r.json();
+    el.style.display = 'block';
+    if (r.ok) {
+      el.style.background = 'rgba(74,222,128,0.1)';
+      el.textContent = `Settled ${data.settled} position(s)`;
+      loadSettlement();
+      loadOverview();
+    } else {
+      el.style.background = 'rgba(248,113,113,0.1)';
+      el.textContent = data.error || 'Settlement failed';
+    }
+  } catch (e) {
+    el.style.display = 'block'; el.style.background = 'rgba(248,113,113,0.1)'; el.textContent = e.message;
+  }
+}
+
+async function refreshAll() {
+  await Promise.all([
+    loadOverview(),
+    loadAccounts(),
+    loadPositions(),
+    loadTrades(),
+    loadSettlement(),
+    loadReconciliation(),
+    loadFeeBreakdown(),
+  ]);
+}
+
+// Initial load
+refreshAll();
+// Auto-refresh every 30 seconds
+setInterval(refreshAll, 30000);
+</script>
+</body>
+</html>

@@ -17,7 +17,14 @@ import { PolymarketWebSocket } from './polymarket/websocket.js';
 import { findMatches, candidatesToPairs } from './matching/matcher.js';
 import { analyzeArb, dollarsToCents, type PairPrices } from './arb/detector.js';
 import { sendDiscordAlert } from './alerts/discord.js';
-import { snapshotAllAccounts } from './finance/index.js';
+import {
+  snapshotAllAccounts,
+  getPriceCache,
+  updatePriceCache,
+  checkAndSettleKalshiMarkets,
+  checkAndSettlePolymarketMarkets,
+} from './finance/index.js';
+import type { PriceCacheEntry } from './finance/prices.js';
 import { startApiServer } from './api/server.js';
 import type { PriceUpdate } from './types.js';
 import { kalshiDollarsToCents, type KalshiMarket } from './kalshi/types.js';
@@ -25,17 +32,8 @@ import { createLogger } from './logger.js';
 
 const logger = createLogger('main');
 
-// In-memory price cache for matched pairs
-interface PriceCache {
-  kalshiYesBid: number;
-  kalshiYesAsk: number;
-  kalshiNoBid: number;
-  kalshiNoAsk: number;
-  polyYesBid: number;
-  polyYesAsk: number;
-}
-
-const priceCache = new Map<string, PriceCache>(); // key = pairId
+// Shared price cache (also used by finance modules for mark-to-market)
+const priceCache = getPriceCache();
 
 // Map from ticker/tokenId to pair info for WS updates
 interface PairRef {
@@ -196,13 +194,14 @@ async function main() {
         }
       } catch { /* ignore */ }
 
-      priceCache.set(row.id, {
+      updatePriceCache(row.id, {
         kalshiYesBid: kalshiDollarsToCents(km.yes_bid_dollars),
         kalshiYesAsk: kalshiDollarsToCents(km.yes_ask_dollars),
         kalshiNoBid: kalshiDollarsToCents(km.no_bid_dollars),
         kalshiNoAsk: kalshiDollarsToCents(km.no_ask_dollars),
         polyYesBid,
         polyYesAsk,
+        updatedAt: Date.now(),
       });
     }
   }
@@ -234,11 +233,29 @@ async function main() {
     polyWs.subscribe(polyTokenIds);
   }
 
-  // --- Step 5: Periodic stats logging & balance snapshots ---
+  // --- Step 5: Periodic stats logging, balance snapshots & settlement ---
   // Snapshot account balances on startup and every 15 minutes
   snapshotAllAccounts(db);
   const BALANCE_SNAPSHOT_INTERVAL_MS = 15 * 60_000;
   setInterval(() => snapshotAllAccounts(db), BALANCE_SNAPSHOT_INTERVAL_MS);
+
+  // Auto-settlement: check for resolved markets every 5 minutes
+  const SETTLEMENT_CHECK_INTERVAL_MS = 5 * 60_000;
+  const runSettlementCheck = async () => {
+    try {
+      const kalshiResults = await checkAndSettleKalshiMarkets(db, kalshiClient);
+      const polyResults = await checkAndSettlePolymarketMarkets(db, polyClient);
+      const total = kalshiResults.length + polyResults.length;
+      if (total > 0) {
+        logger.info(`Auto-settlement: settled ${total} positions (${kalshiResults.length} Kalshi, ${polyResults.length} Polymarket)`);
+      }
+    } catch (err) {
+      logger.error('Settlement check failed', { error: (err as Error).message });
+    }
+  };
+  // Run initial check after 30s, then every 5 minutes
+  setTimeout(runSettlementCheck, 30_000);
+  setInterval(runSettlementCheck, SETTLEMENT_CHECK_INTERVAL_MS);
 
   const STATS_INTERVAL_MS = 60_000;
   setInterval(() => {
@@ -289,6 +306,7 @@ function handlePriceUpdate(
         kalshiNoAsk: 0,
         polyYesBid: 0,
         polyYesAsk: 0,
+        updatedAt: Date.now(),
       };
       priceCache.set(ref.pairId, cache);
     }
@@ -303,6 +321,7 @@ function handlePriceUpdate(
       if (update.yesBid !== undefined) cache.polyYesBid = update.yesBid;
       if (update.yesAsk !== undefined) cache.polyYesAsk = update.yesAsk;
     }
+    cache.updatedAt = Date.now();
 
     // Skip if we don't have prices from both sides
     if (cache.kalshiYesAsk === 0 || cache.polyYesBid === 0) return;

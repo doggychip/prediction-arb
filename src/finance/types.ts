@@ -153,3 +153,55 @@ export interface PnLSummary {
     tradeCount: number;
   }>;
 }
+
+// --- Unrealized P&L ---
+
+export interface PositionMtm {
+  positionId: number;
+  accountId: string;
+  platform: string;
+  marketId: string;
+  side: string;
+  quantity: number;
+  avgEntryPriceCents: number;
+  currentPriceCents: number | null;
+  unrealizedPnlCents: number | null;
+  totalCostCents: number;
+  currentValueCents: number | null;
+  pairId?: string;
+}
+
+export interface UnrealizedPnLReport {
+  timestamp: string;
+  positions: PositionMtm[];
+  totalUnrealizedPnlCents: number;
+  totalCostBasisCents: number;
+  totalCurrentValueCents: number;
+  positionsWithPriceData: number;
+  positionsWithoutPriceData: number;
+}
+
+// --- Enhanced reporting ---
+
+export interface DailySummary {
+  date: string;
+  tradeCount: number;
+  totalVolumeCents: number;
+  realizedPnlCents: number;
+  feesCents: number;
+  netPnlCents: number;
+  depositsCountCents: { count: number; totalCents: number };
+  withdrawalsCountCents: { count: number; totalCents: number };
+  positionsOpened: number;
+  positionsClosed: number;
+}
+
+export interface FeeBreakdown {
+  periodStart: string;
+  periodEnd: string;
+  totalFeesCents: number;
+  byPlatform: Record<string, number>;
+  byAccount: Array<{ accountId: string; label: string; feesCents: number }>;
+  avgFeePerTradeCents: number;
+  feeAsPercentOfVolume: number;
+}
