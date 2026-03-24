@@ -58,7 +58,15 @@ export default function AgentDetailPage({ slug, user, onNavigate }: Props) {
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-8">
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-white mb-2">{agent.name}</h1>
+            <h1 className="text-3xl font-bold text-white mb-2 flex items-center gap-2">
+              {agent.name}
+              {agent.healthStatus === "healthy" && (
+                <span className="inline-block w-3 h-3 rounded-full bg-green-400" title="Healthy" />
+              )}
+              {agent.healthStatus === "unhealthy" && (
+                <span className="inline-block w-3 h-3 rounded-full bg-red-400" title="Unhealthy" />
+              )}
+            </h1>
             <p className="text-gray-400">
               by{" "}
               <span className="text-indigo-400">

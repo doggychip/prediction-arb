@@ -128,7 +128,13 @@ export default function HomePage({ onNavigate }: Props) {
               className="bg-gray-900 border border-gray-800 rounded-xl p-6 text-left hover:border-indigo-500/50 transition group"
             >
               <div className="flex items-start justify-between mb-3">
-                <h3 className="text-lg font-semibold text-white group-hover:text-indigo-400 transition">
+                <h3 className="text-lg font-semibold text-white group-hover:text-indigo-400 transition flex items-center">
+                  {agent.healthStatus === "healthy" && (
+                    <span className="inline-block w-2 h-2 rounded-full bg-green-400 mr-2 flex-shrink-0" title="Healthy" />
+                  )}
+                  {agent.healthStatus === "unhealthy" && (
+                    <span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-2 flex-shrink-0" title="Unhealthy" />
+                  )}
                   {agent.name}
                 </h3>
                 <span className="text-xs bg-gray-800 text-gray-400 px-2 py-1 rounded">

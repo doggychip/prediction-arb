@@ -10,6 +10,7 @@ import agentsRoutes from "./routes/agents.js";
 import subsRoutes from "./routes/subscriptions.js";
 import keysRoutes from "./routes/keys.js";
 import proxyRoutes from "./routes/proxy.js";
+import { startHealthChecker } from "./health-checker.js";
 
 const app = new Hono();
 
@@ -67,9 +68,15 @@ serve({ fetch: app.fetch, port }, () => {
   │  Routes:                            │
   │    POST /api/auth/register          │
   │    POST /api/auth/login             │
+  │    GET  /api/auth/me                │
   │    GET  /api/agents                 │
+  │    GET  /api/agents/mine            │
+  │    GET  /api/agents/mine/:slug/usage│
   │    GET  /api/agents/:slug           │
   │    POST /api/agents                 │
+  │  PATCH  /api/agents/:slug           │
+  │  PATCH  /api/agents/:slug/status    │
+  │ DELETE  /api/agents/:slug           │
   │    GET  /api/subscriptions          │
   │    POST /api/subscriptions          │
   │    GET  /api/keys                   │
@@ -78,6 +85,9 @@ serve({ fetch: app.fetch, port }, () => {
   │    GET  /api/stats                  │
   └─────────────────────────────────────┘
   `);
+
+  // Start periodic health checking
+  startHealthChecker();
 });
 
 export default app;

@@ -50,6 +50,8 @@ sqlite.exec(`
     rate_limit INTEGER DEFAULT 100,
     version TEXT DEFAULT '1.0.0',
     schema TEXT,
+    health_status TEXT DEFAULT 'unknown',
+    health_checked_at TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
   );
@@ -104,5 +106,13 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_usage_logs_agent ON usage_logs(agent_id);
   CREATE INDEX IF NOT EXISTS idx_usage_logs_created ON usage_logs(created_at);
 `);
+
+// Migrations for existing DBs
+try {
+  sqlite.exec(`ALTER TABLE agents ADD COLUMN health_status TEXT DEFAULT 'unknown'`);
+} catch { /* column already exists */ }
+try {
+  sqlite.exec(`ALTER TABLE agents ADD COLUMN health_checked_at TEXT`);
+} catch { /* column already exists */ }
 
 console.log(`[db] Connected to ${DB_PATH}`);

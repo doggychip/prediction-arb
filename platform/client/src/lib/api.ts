@@ -79,6 +79,24 @@ export const agentsApi = {
     request<any>("/agents", { method: "POST", body: JSON.stringify(data) }),
   update: (slug: string, data: any) =>
     request<any>(`/agents/${slug}`, { method: "PATCH", body: JSON.stringify(data) }),
+  mine: () => request<{ agents: any[] }>("/agents/mine"),
+  usage: (slug: string) =>
+    request<{
+      totalCalls: number;
+      calls24h: number;
+      calls7d: number;
+      avgLatencyMs: number;
+      errorRate: number;
+      estimatedRevenue: number;
+      daily: { date: string; count: number; avgLatency: number; errors: number }[];
+    }>(`/agents/mine/${slug}/usage`),
+  setStatus: (slug: string, status: "active" | "suspended") =>
+    request<{ ok: boolean; status: string }>(`/agents/${slug}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+  remove: (slug: string) =>
+    request<{ ok: boolean }>(`/agents/${slug}`, { method: "DELETE" }),
 };
 
 // Subscriptions

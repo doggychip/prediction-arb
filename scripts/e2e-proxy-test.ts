@@ -361,8 +361,114 @@ async function runTests() {
   assert(meAfter.data?.bio === "I run e2e tests", "Bio updated");
   assert(meAfter.data?.agentCount >= 1, "agentCount reflects published agents");
 
-  // 9. Duplicate slug rejection
-  console.log("\n9. Edge cases");
+  // 9. My Agents
+  console.log("\n9. My Agents");
+  const mine = await api("/api/agents/mine", { token });
+  assert(mine.status === 200, "GET /agents/mine returns 200");
+  assert(mine.data?.agents?.length >= 1, "My agents list includes arb-scanner");
+  const myAgent = mine.data?.agents?.find((a: any) => a.slug === "arb-scanner");
+  assert(!!myAgent, "arb-scanner found in my agents");
+  assert(typeof myAgent?.totalCalls === "number", "My agent includes totalCalls");
+  assert(typeof myAgent?.subscriberCount === "number", "My agent includes subscriberCount");
+
+  // 10. Usage stats
+  console.log("\n10. Usage stats");
+  const usageRes = await api("/api/agents/mine/arb-scanner/usage", { token });
+  assert(usageRes.status === 200, "GET /agents/mine/arb-scanner/usage returns 200");
+  assert(usageRes.data?.totalCalls >= 1, "Usage shows at least 1 call");
+  assert(typeof usageRes.data?.avgLatencyMs === "number", "Usage includes avgLatencyMs");
+  assert(typeof usageRes.data?.errorRate === "number", "Usage includes errorRate");
+  assert(typeof usageRes.data?.estimatedRevenue === "number", "Usage includes estimatedRevenue");
+  assert(Array.isArray(usageRes.data?.daily), "Usage includes daily breakdown");
+
+  // Non-owner can't see usage
+  const reg2 = await api("/api/auth/register", {
+    method: "POST",
+    body: { name: "Other User", email: "other@test.io", password: "testpassword123" },
+  });
+  const otherToken = reg2.data?.token;
+  const otherUsage = await api("/api/agents/mine/arb-scanner/usage", { token: otherToken });
+  assert(otherUsage.status === 404, "Non-owner can't see usage stats");
+
+  // 11. Agent status management
+  console.log("\n11. Agent status management");
+
+  // Suspend
+  const suspend = await api("/api/agents/arb-scanner/status", {
+    method: "PATCH",
+    token,
+    body: { status: "suspended" },
+  });
+  assert(suspend.status === 200, "Suspend returns 200");
+  assert(suspend.data?.status === "suspended", "Status is suspended");
+
+  // Suspended agent not visible in public list
+  const listAfterSuspend = await api("/api/agents");
+  const foundSuspended = listAfterSuspend.data?.agents?.find((a: any) => a.slug === "arb-scanner");
+  assert(!foundSuspended, "Suspended agent hidden from public list");
+
+  // Suspended agent can't be called
+  const callSuspended = await api("/api/call/arb-scanner", {
+    method: "POST",
+    apiKey,
+    body: {},
+  });
+  assert(callSuspended.status === 404, "Suspended agent returns 404 on call");
+
+  // Re-activate
+  const reactivate = await api("/api/agents/arb-scanner/status", {
+    method: "PATCH",
+    token,
+    body: { status: "active" },
+  });
+  assert(reactivate.status === 200, "Reactivate returns 200");
+
+  // Non-owner can't change status
+  const otherSuspend = await api("/api/agents/arb-scanner/status", {
+    method: "PATCH",
+    token: otherToken,
+    body: { status: "suspended" },
+  });
+  assert(otherSuspend.status === 403, "Non-owner can't change agent status");
+
+  // 12. Agent deletion
+  console.log("\n12. Agent deletion");
+
+  // Create a throwaway agent to delete
+  const throwaway = await api("/api/agents", {
+    method: "POST",
+    token,
+    body: {
+      name: "Throwaway Agent",
+      slug: "throwaway",
+      description: "Will be deleted",
+      category: "testing",
+      endpointUrl: `${ENGINE}/api/scan`,
+      pricing: "free",
+    },
+  });
+  assert(throwaway.status === 201, "Throwaway agent created");
+
+  // Non-owner can't delete
+  const otherDelete = await api("/api/agents/throwaway", {
+    method: "DELETE",
+    token: otherToken,
+  });
+  assert(otherDelete.status === 403, "Non-owner can't delete agent");
+
+  // Owner deletes
+  const del = await api("/api/agents/throwaway", {
+    method: "DELETE",
+    token,
+  });
+  assert(del.status === 200, "Delete returns 200");
+
+  // Verify deleted
+  const afterDel = await api("/api/agents/throwaway");
+  assert(afterDel.status === 404, "Deleted agent returns 404");
+
+  // 13. Duplicate slug & subscription rejection
+  console.log("\n13. Edge cases");
   const dup = await api("/api/agents", {
     method: "POST",
     token,

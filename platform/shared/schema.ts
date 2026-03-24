@@ -37,6 +37,8 @@ export const agents = sqliteTable("agents", {
   rateLimit: integer("rate_limit").default(100), // requests per minute
   version: text("version").default("1.0.0"),
   schema: text("schema"), // JSON schema for agent input/output
+  healthStatus: text("health_status").default("unknown"), // 'healthy', 'unhealthy', 'unknown'
+  healthCheckedAt: text("health_checked_at"),
   createdAt: text("created_at").default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").default(sql`(datetime('now'))`),
 });
