@@ -1,12 +1,11 @@
 /**
- * Standalone script: Fetch all markets from both platforms and store in SQLite.
+ * Standalone script: Fetch all markets from Polymarket and store in SQLite.
  * Usage: npm run fetch-markets
  */
 
 import { loadConfig, validateConfig } from '../src/config.js';
 import { initDatabase } from '../src/store/db.js';
-import { upsertKalshiMarkets, upsertPolymarketMarkets } from '../src/store/models.js';
-import { KalshiClient } from '../src/kalshi/client.js';
+import { upsertPolymarketMarkets } from '../src/store/models.js';
 import { PolymarketClient } from '../src/polymarket/client.js';
 import { createLogger } from '../src/logger.js';
 
@@ -22,18 +21,7 @@ async function main() {
   }
 
   const db = initDatabase(config.dbPath);
-  const kalshiClient = new KalshiClient(config);
   const polyClient = new PolymarketClient(config);
-
-  // Fetch Kalshi markets
-  logger.info('Fetching Kalshi markets...');
-  try {
-    const kalshiMarkets = await kalshiClient.getAllMarkets({ status: 'open' });
-    upsertKalshiMarkets(db, kalshiMarkets);
-    logger.info(`Stored ${kalshiMarkets.length} Kalshi markets`);
-  } catch (err) {
-    logger.error('Failed to fetch Kalshi markets', { error: (err as Error).message });
-  }
 
   // Fetch Polymarket markets
   logger.info('Fetching Polymarket markets...');

@@ -738,7 +738,7 @@ export function getUnrealizedPnL(db: Database.Database): UnrealizedPnLReport {
 
   const mtmPositions: PositionMtm[] = positions.map((pos) => {
     const currentPrice = pos.pair_id
-      ? getCurrentMarketPrice(pos.pair_id, pos.platform as 'kalshi' | 'polymarket', pos.side as 'yes' | 'no')
+      ? getCurrentMarketPrice(pos.pair_id, pos.platform as 'polymarket', pos.side as 'yes' | 'no')
       : undefined;
 
     const currentValue = currentPrice != null ? currentPrice * pos.quantity : null;

@@ -6,7 +6,6 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "fetch-markets": "tsx scripts/fetch-all-markets.ts",
-    "generate-key": "tsx scripts/generate-rsa-key.ts",
     "test-finance": "tsx scripts/test-finance.ts"
   },
   "dependencies": {
@@ -15,7 +14,6 @@
     "dotenv": "^16.4.0",
     "ethers": "^5.8.0",
     "express": "^5.2.1",
-    "kalshi-typescript": "^2.1.1",
     "winston": "^3.14.0",
     "ws": "^8.18.0"
   },

@@ -78,13 +78,13 @@ function main() {
   }
 
   // 2. Account creation
-  const kalshi = createAccount(db, {
-    id: 'kalshi_prod',
-    platform: 'kalshi',
-    label: 'Kalshi Production',
+  const poly2 = createAccount(db, {
+    id: 'poly_prod',
+    platform: 'polymarket',
+    label: 'Polymarket Production',
     initialBalanceCents: 50_000,
   });
-  assert(kalshi.balanceCents === 50_000, 'Kalshi account created with $500', `balance=${kalshi.balanceCents}`);
+  assert(poly2.balanceCents === 50_000, 'Polymarket prod account created with $500', `balance=${poly2.balanceCents}`);
 
   const poly = createAccount(db, {
     id: 'poly_main',
@@ -119,12 +119,12 @@ function main() {
   assert(bankVerify.ok, 'Bank balance verification passes');
 
   // 4. Withdrawals
-  recordWithdrawal(db, { accountId: 'kalshi_prod', amountCents: 10_000 });
-  const kalshiAfterW = getAccount(db, 'kalshi_prod')!;
-  assert(kalshiAfterW.balanceCents === 40_000, 'Kalshi balance after $100 withdrawal', `got ${kalshiAfterW.balanceCents}`);
+  recordWithdrawal(db, { accountId: 'poly_prod', amountCents: 10_000 });
+  const prodAfterW = getAccount(db, 'poly_prod')!;
+  assert(prodAfterW.balanceCents === 40_000, 'Polymarket prod balance after $100 withdrawal', `got ${prodAfterW.balanceCents}`);
 
   assertThrows(
-    () => recordWithdrawal(db, { accountId: 'kalshi_prod', amountCents: 999_900 }),
+    () => recordWithdrawal(db, { accountId: 'poly_prod', amountCents: 999_900 }),
     'Withdrawal exceeding balance throws error',
     'Insufficient balance',
   );
@@ -151,8 +151,8 @@ function main() {
 
   // 6. Trade recording (buy)
   const buyTrade1 = recordTrade(db, {
-    accountId: 'kalshi_prod',
-    platform: 'kalshi',
+    accountId: 'poly_prod',
+    platform: 'polymarket',
     marketId: 'TICKER-A',
     side: 'yes',
     direction: 'buy',
@@ -161,18 +161,18 @@ function main() {
   });
   assert(buyTrade1.totalCents === 600, 'Buy trade 1: 10 x 60¢ = 600¢', `got ${buyTrade1.totalCents}`);
 
-  let positions = getOpenPositions(db, 'kalshi_prod');
+  let positions = getOpenPositions(db, 'poly_prod');
   assert(positions.length === 1, 'One open position after first buy', `got ${positions.length}`);
   assert(positions[0].quantity === 10, 'Position qty = 10', `got ${positions[0].quantity}`);
   assert(positions[0].avgEntryPriceCents === 60, 'Position avg entry = 60¢', `got ${positions[0].avgEntryPriceCents}`);
 
-  const kalshiAfterBuy1 = getAccount(db, 'kalshi_prod')!;
-  assert(kalshiAfterBuy1.balanceCents === 40_000 - 600, 'Kalshi balance reduced by 600¢', `got ${kalshiAfterBuy1.balanceCents}`);
+  const prodAfterBuy1 = getAccount(db, 'poly_prod')!;
+  assert(prodAfterBuy1.balanceCents === 40_000 - 600, 'Polymarket prod balance reduced by 600¢', `got ${prodAfterBuy1.balanceCents}`);
 
   // Second buy at different price
   recordTrade(db, {
-    accountId: 'kalshi_prod',
-    platform: 'kalshi',
+    accountId: 'poly_prod',
+    platform: 'polymarket',
     marketId: 'TICKER-A',
     side: 'yes',
     direction: 'buy',
@@ -180,23 +180,23 @@ function main() {
     priceCents: 50,
   });
 
-  positions = getOpenPositions(db, 'kalshi_prod');
+  positions = getOpenPositions(db, 'poly_prod');
   const pos = positions[0];
   assert(pos.quantity === 15, 'Position qty = 15 after second buy', `got ${pos.quantity}`);
   // weighted avg = round((600 + 250) / 15) = round(56.67) = 57
   assert(pos.avgEntryPriceCents === 57, 'Weighted avg entry = 57¢', `got ${pos.avgEntryPriceCents}`);
 
-  const kalshiAfterBuy2 = getAccount(db, 'kalshi_prod')!;
+  const prodAfterBuy2 = getAccount(db, 'poly_prod')!;
   assert(
-    kalshiAfterBuy2.balanceCents === 40_000 - 600 - 250,
-    'Kalshi balance reduced by another 250¢',
-    `got ${kalshiAfterBuy2.balanceCents}`,
+    prodAfterBuy2.balanceCents === 40_000 - 600 - 250,
+    'Polymarket prod balance reduced by another 250¢',
+    `got ${prodAfterBuy2.balanceCents}`,
   );
 
   // 7. Trade recording (sell with P&L)
   const sellTrade1 = recordTrade(db, {
-    accountId: 'kalshi_prod',
-    platform: 'kalshi',
+    accountId: 'poly_prod',
+    platform: 'polymarket',
     marketId: 'TICKER-A',
     side: 'yes',
     direction: 'sell',
@@ -206,21 +206,21 @@ function main() {
   // realized_pnl = (70 - 57) * 10 = 130
   assert(sellTrade1.realizedPnlCents === 130, 'Sell 10 at 70¢: realized P&L = 130¢', `got ${sellTrade1.realizedPnlCents}`);
 
-  positions = getOpenPositions(db, 'kalshi_prod');
+  positions = getOpenPositions(db, 'poly_prod');
   assert(positions[0].quantity === 5, 'Position reduced to qty=5', `got ${positions[0].quantity}`);
 
-  const kalshiAfterSell1 = getAccount(db, 'kalshi_prod')!;
+  const prodAfterSell1 = getAccount(db, 'poly_prod')!;
   // previous balance was 39150, sell proceeds = 700, new = 39850
   assert(
-    kalshiAfterSell1.balanceCents === 40_000 - 600 - 250 + 700,
-    'Kalshi balance credited 700¢ sell proceeds',
-    `got ${kalshiAfterSell1.balanceCents}`,
+    prodAfterSell1.balanceCents === 40_000 - 600 - 250 + 700,
+    'Polymarket prod balance credited 700¢ sell proceeds',
+    `got ${prodAfterSell1.balanceCents}`,
   );
 
   // 8. Full position close
   const sellTrade2 = recordTrade(db, {
-    accountId: 'kalshi_prod',
-    platform: 'kalshi',
+    accountId: 'poly_prod',
+    platform: 'polymarket',
     marketId: 'TICKER-A',
     side: 'yes',
     direction: 'sell',
@@ -230,7 +230,7 @@ function main() {
   // realized_pnl = (40 - 57) * 5 = -85
   assert(sellTrade2.realizedPnlCents === -85, 'Sell 5 at 40¢: realized P&L = -85¢ (loss)', `got ${sellTrade2.realizedPnlCents}`);
 
-  positions = getOpenPositions(db, 'kalshi_prod');
+  positions = getOpenPositions(db, 'poly_prod');
   assert(positions.length === 0, 'No open positions after full close', `got ${positions.length}`);
 
   // Check trade history for the position
@@ -239,8 +239,8 @@ function main() {
 
   // 9. Balance snapshots
   snapshotAllAccounts(db);
-  const kalshiSnaps = getBalanceSnapshots(db, 'kalshi_prod');
-  assert(kalshiSnaps.length >= 1, 'Kalshi has balance snapshots', `got ${kalshiSnaps.length}`);
+  const prodSnaps = getBalanceSnapshots(db, 'poly_prod');
+  assert(prodSnaps.length >= 1, 'Polymarket prod has balance snapshots', `got ${prodSnaps.length}`);
 
   const polySnaps = getBalanceSnapshots(db, 'poly_main');
   assert(polySnaps.length >= 1, 'Polymarket has balance snapshots', `got ${polySnaps.length}`);
@@ -264,7 +264,7 @@ function main() {
   assert(pnl.totalRealizedPnlCents === 45, 'Total realized P&L = 45¢', `got ${pnl.totalRealizedPnlCents}`);
 
   // Verify all account balances
-  for (const acctId of ['kalshi_prod', 'poly_main', 'bank']) {
+  for (const acctId of ['poly_prod', 'poly_main', 'bank']) {
     const v = verifyAccountBalance(db, acctId);
     assert(v.ok, `Account ${acctId} balance verification passes`, `expected=${v.expected} actual=${v.actual}`);
   }

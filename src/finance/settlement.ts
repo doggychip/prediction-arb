@@ -139,38 +139,6 @@ export function settleMarket(
 }
 
 /**
- * Check Kalshi markets for resolution and auto-settle open positions.
- * Kalshi markets have a `result` field: "" (unresolved), "yes", "no", "all_no", "all_yes"
- */
-export async function checkAndSettleKalshiMarkets(
-  db: Database.Database,
-  kalshiClient: { getMarket: (ticker: string) => Promise<{ result: string; status: string }> },
-): Promise<SettlementResult[]> {
-  // Find all open positions on Kalshi
-  const openPositions = db.prepare(
-    "SELECT DISTINCT market_id FROM positions WHERE platform = 'kalshi' AND status = 'open'",
-  ).all() as Array<{ market_id: string }>;
-
-  const allResults: SettlementResult[] = [];
-
-  for (const { market_id } of openPositions) {
-    try {
-      const market = await kalshiClient.getMarket(market_id);
-      if (market.result && market.result !== '') {
-        const outcome = market.result === 'yes' || market.result === 'all_yes' ? 'yes' : 'no';
-        logger.info(`Kalshi market ${market_id} resolved: ${market.result} → settling as ${outcome}`);
-        const results = settleMarket(db, market_id, outcome);
-        allResults.push(...results);
-      }
-    } catch (err) {
-      logger.warn(`Failed to check Kalshi market ${market_id}: ${(err as Error).message}`);
-    }
-  }
-
-  return allResults;
-}
-
-/**
  * Check Polymarket markets for resolution and auto-settle open positions.
  * Polymarket markets: closed=true with resolved outcome
  */

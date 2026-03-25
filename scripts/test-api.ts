@@ -120,7 +120,7 @@ async function run() {
 
   await check('POST /api/trades (buy)', async () => {
     const { status, data } = await req('POST', '/api/trades', {
-      accountId: 'acct1', platform: 'kalshi', marketId: 'MKT-1',
+      accountId: 'acct1', platform: 'polymarket', marketId: 'MKT-1',
       side: 'yes', direction: 'buy', quantity: 10, priceCents: 60,
     });
     assert(status === 201, `status=${status}`);
@@ -135,7 +135,7 @@ async function run() {
 
   await check('POST /api/trades (sell with P&L)', async () => {
     const { status, data } = await req('POST', '/api/trades', {
-      accountId: 'acct1', platform: 'kalshi', marketId: 'MKT-1',
+      accountId: 'acct1', platform: 'polymarket', marketId: 'MKT-1',
       side: 'yes', direction: 'sell', quantity: 10, priceCents: 75,
     });
     assert(status === 201, `status=${status}`);

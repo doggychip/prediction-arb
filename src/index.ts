@@ -1,33 +1,25 @@
 import { loadConfig, validateConfig } from './config.js';
 import { initDatabase } from './store/db.js';
 import {
-  upsertKalshiMarkets,
   upsertPolymarketMarkets,
-  getActiveKalshiMarkets,
   getActivePolymarketMarkets,
-  upsertMarketPair,
   getApprovedPairs,
   insertArbOpportunity,
   insertPriceSnapshot,
 } from './store/models.js';
-import { KalshiClient } from './kalshi/client.js';
-import { KalshiWebSocket } from './kalshi/websocket.js';
 import { PolymarketClient } from './polymarket/client.js';
 import { PolymarketWebSocket } from './polymarket/websocket.js';
-import { findMatches, candidatesToPairs } from './matching/matcher.js';
 import { analyzeArb, dollarsToCents, type PairPrices } from './arb/detector.js';
 import { sendDiscordAlert } from './alerts/discord.js';
 import {
   snapshotAllAccounts,
   getPriceCache,
   updatePriceCache,
-  checkAndSettleKalshiMarkets,
   checkAndSettlePolymarketMarkets,
 } from './finance/index.js';
 import type { PriceCacheEntry } from './finance/prices.js';
 import { startApiServer } from './api/server.js';
 import type { PriceUpdate } from './types.js';
-import { kalshiDollarsToCents, type KalshiMarket } from './kalshi/types.js';
 import { createLogger } from './logger.js';
 
 const logger = createLogger('main');
@@ -35,17 +27,14 @@ const logger = createLogger('main');
 // Shared price cache (also used by finance modules for mark-to-market)
 const priceCache = getPriceCache();
 
-// Map from ticker/tokenId to pair info for WS updates
+// Map from tokenId to pair info for WS updates
 interface PairRef {
   pairId: string;
-  kalshiTicker: string;
   polymarketId: string;
   polyYesTokenId: string;
-  kalshiTitle: string;
   polyQuestion: string;
 }
 
-const kalshiTickerToPairs = new Map<string, PairRef[]>();
 const polyTokenToPairs = new Map<string, PairRef[]>();
 
 let statsOppsFound = 0;
@@ -73,38 +62,11 @@ async function main() {
   // Start Finance API server
   startApiServer(db, config.apiPort);
 
-  // Initialize REST clients
-  const kalshiClient = new KalshiClient(config);
+  // Initialize REST client
   const polyClient = new PolymarketClient(config);
 
   // --- Step 1: Fetch all active markets ---
-  logger.info('Fetching active markets from both platforms...');
-
-  let kalshiMarkets: KalshiMarket[] = [];
-  try {
-    // Kalshi API: filter=open returns status='active' in response; mve_filter=exclude skips parlays server-side
-    const allKalshi = await kalshiClient.getAllMarkets({ status: 'open', mve_filter: 'exclude' });
-    logger.info(`Fetched ${allKalshi.length} Kalshi markets (open, non-MVE)`);
-
-    // Client-side filter: volume + valid bid/ask prices
-    kalshiMarkets = allKalshi.filter((m) => {
-      // API returns 'active' when filtered by 'open'
-      if (m.status !== 'open' && m.status !== 'active') return false;
-      const vol = parseFloat(m.volume_fp || '0');
-      const vol24h = parseFloat(m.volume_24h_fp || '0');
-      if (vol24h <= 0 && vol <= 100) return false;
-      const yesBid = kalshiDollarsToCents(m.yes_bid_dollars);
-      const yesAsk = kalshiDollarsToCents(m.yes_ask_dollars);
-      if (yesAsk <= 0 || yesBid <= 0) return false;
-      return true;
-    });
-    upsertKalshiMarkets(db, kalshiMarkets);
-    logger.info(`Stored ${kalshiMarkets.length} active Kalshi markets (filtered by volume + valid prices)`);
-  } catch (err) {
-    logger.error('Failed to fetch Kalshi markets', { error: (err as Error).message });
-    kalshiMarkets = getActiveKalshiMarkets(db) as KalshiMarket[];
-    logger.info(`Using ${kalshiMarkets.length} cached Kalshi markets from DB`);
-  }
+  logger.info('Fetching active markets from Polymarket...');
 
   let polyMarkets: any[] = [];
   try {
@@ -126,29 +88,19 @@ async function main() {
     logger.info(`Using ${polyMarkets.length} cached Polymarket markets from DB`);
   }
 
-  if (kalshiMarkets.length === 0 || polyMarkets.length === 0) {
-    logger.error('No markets available on one or both platforms. Exiting.');
+  if (polyMarkets.length === 0) {
+    logger.error('No markets available. Exiting.');
     db.close();
     process.exit(1);
   }
 
-  // --- Step 2: Match markets ---
-  logger.info('Running market matcher...');
-  const candidates = findMatches(kalshiMarkets, polyMarkets, 0.45);
-  const pairs = candidatesToPairs(candidates);
-
-  for (const pair of pairs) {
-    upsertMarketPair(db, pair);
-  }
-  logger.info(`Stored ${pairs.length} market pair candidates`);
-
   // Load all pairs (including previously approved ones)
   const allPairs = getApprovedPairs(db);
   if (allPairs.length === 0) {
-    logger.warn('No market pairs found. The engine will wait for matches. Consider lowering the confidence threshold or adding manual pairs.');
+    logger.warn('No market pairs found. The engine will wait for matches.');
   }
 
-  // --- Step 3: Build lookup maps and initialize price cache ---
+  // --- Step 2: Build lookup maps and initialize price cache ---
   for (const row of allPairs) {
     let polyYesTokenId = '';
     try {
@@ -163,17 +115,10 @@ async function main() {
 
     const ref: PairRef = {
       pairId: row.id,
-      kalshiTicker: row.kalshi_ticker,
       polymarketId: row.polymarket_id,
       polyYesTokenId,
-      kalshiTitle: row.kalshi_title,
       polyQuestion: row.poly_question,
     };
-
-    if (!kalshiTickerToPairs.has(row.kalshi_ticker)) {
-      kalshiTickerToPairs.set(row.kalshi_ticker, []);
-    }
-    kalshiTickerToPairs.get(row.kalshi_ticker)!.push(ref);
 
     if (!polyTokenToPairs.has(polyYesTokenId)) {
       polyTokenToPairs.set(polyYesTokenId, []);
@@ -181,9 +126,8 @@ async function main() {
     polyTokenToPairs.get(polyYesTokenId)!.push(ref);
 
     // Seed price cache from DB/REST data
-    const km = kalshiMarkets.find((m) => m.ticker === row.kalshi_ticker);
     const pm = polyMarkets.find((m: any) => m.id === row.polymarket_id);
-    if (km && pm) {
+    if (pm) {
       let polyYesBid = 0;
       let polyYesAsk = 0;
       try {
@@ -195,10 +139,6 @@ async function main() {
       } catch { /* ignore */ }
 
       updatePriceCache(row.id, {
-        kalshiYesBid: kalshiDollarsToCents(km.yes_bid_dollars),
-        kalshiYesAsk: kalshiDollarsToCents(km.yes_ask_dollars),
-        kalshiNoBid: kalshiDollarsToCents(km.no_bid_dollars),
-        kalshiNoAsk: kalshiDollarsToCents(km.no_ask_dollars),
         polyYesBid,
         polyYesAsk,
         updatedAt: Date.now(),
@@ -206,34 +146,23 @@ async function main() {
     }
   }
 
-  const kalshiTickers = Array.from(kalshiTickerToPairs.keys());
   const polyTokenIds = Array.from(polyTokenToPairs.keys());
 
-  logger.info(`Tracking ${kalshiTickers.length} Kalshi tickers and ${polyTokenIds.length} Polymarket tokens`);
+  logger.info(`Tracking ${polyTokenIds.length} Polymarket tokens`);
 
-  // --- Step 4: Start WebSocket connections ---
-  const kalshiWs = new KalshiWebSocket(config);
+  // --- Step 3: Start WebSocket connection ---
   const polyWs = new PolymarketWebSocket(config);
-
-  kalshiWs.on('priceUpdate', (update: PriceUpdate) => {
-    handlePriceUpdate(db, config, update);
-  });
 
   polyWs.on('priceUpdate', (update: PriceUpdate) => {
     handlePriceUpdate(db, config, update);
   });
-
-  if (kalshiTickers.length > 0) {
-    kalshiWs.connect();
-    kalshiWs.subscribe(kalshiTickers);
-  }
 
   if (polyTokenIds.length > 0) {
     polyWs.connect();
     polyWs.subscribe(polyTokenIds);
   }
 
-  // --- Step 5: Periodic stats logging, balance snapshots & settlement ---
+  // --- Step 4: Periodic stats logging, balance snapshots & settlement ---
   // Snapshot account balances on startup and every 15 minutes
   snapshotAllAccounts(db);
   const BALANCE_SNAPSHOT_INTERVAL_MS = 15 * 60_000;
@@ -243,11 +172,9 @@ async function main() {
   const SETTLEMENT_CHECK_INTERVAL_MS = 5 * 60_000;
   const runSettlementCheck = async () => {
     try {
-      const kalshiResults = await checkAndSettleKalshiMarkets(db, kalshiClient);
       const polyResults = await checkAndSettlePolymarketMarkets(db, polyClient);
-      const total = kalshiResults.length + polyResults.length;
-      if (total > 0) {
-        logger.info(`Auto-settlement: settled ${total} positions (${kalshiResults.length} Kalshi, ${polyResults.length} Polymarket)`);
+      if (polyResults.length > 0) {
+        logger.info(`Auto-settlement: settled ${polyResults.length} Polymarket positions`);
       }
     } catch (err) {
       logger.error('Settlement check failed', { error: (err as Error).message });
@@ -268,7 +195,6 @@ async function main() {
   // --- Graceful shutdown ---
   const shutdown = () => {
     logger.info('Shutting down...');
-    kalshiWs.close();
     polyWs.close();
     db.close();
     process.exit(0);
@@ -285,14 +211,7 @@ function handlePriceUpdate(
   config: ReturnType<typeof loadConfig>,
   update: PriceUpdate,
 ) {
-  // Find relevant pairs
-  let pairRefs: PairRef[] | undefined;
-
-  if (update.platform === 'kalshi') {
-    pairRefs = kalshiTickerToPairs.get(update.ticker);
-  } else {
-    pairRefs = polyTokenToPairs.get(update.ticker);
-  }
+  const pairRefs = polyTokenToPairs.get(update.ticker);
 
   if (!pairRefs || pairRefs.length === 0) return;
 
@@ -300,10 +219,6 @@ function handlePriceUpdate(
     let cache = priceCache.get(ref.pairId);
     if (!cache) {
       cache = {
-        kalshiYesBid: 0,
-        kalshiYesAsk: 0,
-        kalshiNoBid: 0,
-        kalshiNoAsk: 0,
         polyYesBid: 0,
         polyYesAsk: 0,
         updatedAt: Date.now(),
@@ -312,29 +227,17 @@ function handlePriceUpdate(
     }
 
     // Update cache with new prices
-    if (update.platform === 'kalshi') {
-      if (update.yesBid !== undefined) cache.kalshiYesBid = update.yesBid;
-      if (update.yesAsk !== undefined) cache.kalshiYesAsk = update.yesAsk;
-      if (update.noBid !== undefined) cache.kalshiNoBid = update.noBid;
-      if (update.noAsk !== undefined) cache.kalshiNoAsk = update.noAsk;
-    } else {
-      if (update.yesBid !== undefined) cache.polyYesBid = update.yesBid;
-      if (update.yesAsk !== undefined) cache.polyYesAsk = update.yesAsk;
-    }
+    if (update.yesBid !== undefined) cache.polyYesBid = update.yesBid;
+    if (update.yesAsk !== undefined) cache.polyYesAsk = update.yesAsk;
     cache.updatedAt = Date.now();
 
-    // Skip if we don't have prices from both sides
-    if (cache.kalshiYesAsk === 0 || cache.polyYesBid === 0) return;
+    // Skip if we don't have prices
+    if (cache.polyYesBid === 0 || cache.polyYesAsk === 0) return;
 
     // Run arb detection
     const prices: PairPrices = {
       pairId: ref.pairId,
-      kalshiTicker: ref.kalshiTicker,
       polymarketId: ref.polymarketId,
-      kalshiYesBid: cache.kalshiYesBid,
-      kalshiYesAsk: cache.kalshiYesAsk,
-      kalshiNoBid: cache.kalshiNoBid,
-      kalshiNoAsk: cache.kalshiNoAsk,
       polyYesBid: cache.polyYesBid,
       polyYesAsk: cache.polyYesAsk,
     };
@@ -345,8 +248,6 @@ function handlePriceUpdate(
     try {
       insertPriceSnapshot(db, {
         pairId: ref.pairId,
-        kalshiYesBid: cache.kalshiYesBid,
-        kalshiYesAsk: cache.kalshiYesAsk,
         polyYesBid: cache.polyYesBid,
         polyYesAsk: cache.polyYesAsk,
         spreadCents: analysis.best?.bestSpreadCents ?? 0,
@@ -382,7 +283,6 @@ function handlePriceUpdate(
         sendDiscordAlert(
           config.discordWebhookUrl,
           analysis.best,
-          ref.kalshiTitle,
           ref.polyQuestion,
         ).then(() => {
           statsAlertssSent++;

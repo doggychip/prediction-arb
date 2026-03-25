@@ -1,7 +1,7 @@
 /** Shared types across the prediction-arb project */
 
 /** Platform identifier */
-export type Platform = 'kalshi' | 'polymarket';
+export type Platform = 'polymarket';
 
 /** Common price representation in cents */
 export interface PriceCents {
@@ -24,10 +24,9 @@ export interface Orderbook {
   timestamp: string;
 }
 
-/** Market pair linking Kalshi and Polymarket markets */
+/** Market pair linking two markets on Polymarket (or across platforms) */
 export interface MarketPair {
   id: string;
-  kalshiTicker: string;
   polymarketId: string;
   matchConfidence: number; // 0-1
   resolutionDivergenceRisk: number; // 0-1
@@ -41,7 +40,7 @@ export interface MarketPair {
 /** Price update event emitted by WebSocket clients */
 export interface PriceUpdate {
   platform: Platform;
-  ticker: string; // market ticker (Kalshi) or token ID (Polymarket)
+  ticker: string; // token ID (Polymarket)
   yesBid?: number; // cents
   yesAsk?: number; // cents
   noBid?: number; // cents

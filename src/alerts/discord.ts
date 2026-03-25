@@ -10,14 +10,8 @@ interface DiscordEmbed {
   timestamp: string;
 }
 
-function formatStrategy(strategy: string): string {
-  if (strategy === 'kalshi_yes_poly_no') return 'Buy YES on Kalshi + Buy NO on Polymarket';
-  if (strategy === 'kalshi_no_poly_yes') return 'Buy NO on Kalshi + Buy YES on Polymarket';
-  return strategy;
-}
-
-function buildEmbed(opp: ArbOpportunity, kalshiTitle?: string, polyQuestion?: string): DiscordEmbed {
-  const marketName = kalshiTitle || opp.kalshiTicker;
+function buildEmbed(opp: ArbOpportunity, polyQuestion?: string): DiscordEmbed {
+  const marketName = polyQuestion || opp.polymarketId;
   const spreadPct = opp.bestSpreadCents > 0
     ? ((opp.bestSpreadCents / 100) * 100).toFixed(1)
     : '0.0';
@@ -28,13 +22,8 @@ function buildEmbed(opp: ArbOpportunity, kalshiTitle?: string, polyQuestion?: st
     fields: [
       {
         name: 'Market',
-        value: `**Kalshi**: ${marketName}\n**Polymarket**: ${polyQuestion || opp.polymarketId}`,
+        value: `**Polymarket**: ${marketName}`,
         inline: false,
-      },
-      {
-        name: 'Kalshi',
-        value: `YES bid: ${opp.kalshiYesBid}¢ / ask: ${opp.kalshiYesAsk}¢\nNO bid: ${opp.kalshiNoBid}¢ / ask: ${opp.kalshiNoAsk}¢`,
-        inline: true,
       },
       {
         name: 'Polymarket',
@@ -48,7 +37,7 @@ function buildEmbed(opp: ArbOpportunity, kalshiTitle?: string, polyQuestion?: st
       },
       {
         name: 'Strategy',
-        value: formatStrategy(opp.strategy),
+        value: opp.strategy,
         inline: false,
       },
       {
@@ -64,7 +53,6 @@ function buildEmbed(opp: ArbOpportunity, kalshiTitle?: string, polyQuestion?: st
 export async function sendDiscordAlert(
   webhookUrl: string,
   opp: ArbOpportunity,
-  kalshiTitle?: string,
   polyQuestion?: string,
 ): Promise<void> {
   if (!webhookUrl) {
@@ -72,7 +60,7 @@ export async function sendDiscordAlert(
     return;
   }
 
-  const embed = buildEmbed(opp, kalshiTitle, polyQuestion);
+  const embed = buildEmbed(opp, polyQuestion);
 
   try {
     const response = await fetch(webhookUrl, {

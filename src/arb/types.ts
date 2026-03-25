@@ -1,19 +1,12 @@
 /** Arbitrage-specific types */
 
 /** Strategy direction for the arb trade */
-export type ArbStrategy = 'kalshi_yes_poly_no' | 'kalshi_no_poly_yes';
+export type ArbStrategy = string;
 
 /** A detected arbitrage opportunity */
 export interface ArbOpportunity {
   pairId: string;
-  kalshiTicker: string;
   polymarketId: string;
-
-  // Kalshi prices (cents)
-  kalshiYesBid: number;
-  kalshiYesAsk: number;
-  kalshiNoBid: number;
-  kalshiNoAsk: number;
 
   // Polymarket prices (cents, normalized from dollars)
   polyYesBid: number;
@@ -31,12 +24,8 @@ export interface ArbOpportunity {
   detectedAt: string;
 }
 
-/** Result of arb analysis for both directions */
+/** Result of arb analysis */
 export interface ArbAnalysis {
-  /** kalshi_yes + poly_no direction */
-  direction1: ArbDirectionResult;
-  /** kalshi_no + poly_yes direction */
-  direction2: ArbDirectionResult;
   /** Best opportunity if any spread is positive */
   best: ArbOpportunity | null;
 }

@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import type { KalshiMarket } from '../kalshi/types.js';
 import type { PolymarketMarket } from '../polymarket/types.js';
 import type { MarketPair } from '../types.js';
 import { createLogger } from '../logger.js';
@@ -42,7 +41,6 @@ function tokenSimilarity(tokensA: Set<string>, tokensB: Set<string>): number {
   if (tokensA.size === 0 || tokensB.size === 0) return 0;
 
   let intersection = 0;
-  // Iterate over the smaller set for performance
   const [smaller, larger] = tokensA.size <= tokensB.size
     ? [tokensA, tokensB]
     : [tokensB, tokensA];
@@ -57,7 +55,6 @@ function tokenSimilarity(tokensA: Set<string>, tokensB: Set<string>): number {
 
 /**
  * Build an inverted index: token -> list of market indices.
- * This allows O(1) lookup of which Polymarket markets share tokens with a Kalshi market.
  */
 interface IndexedMarket {
   index: number;
@@ -79,77 +76,73 @@ function buildInvertedIndex(markets: IndexedMarket[]): Map<string, number[]> {
 }
 
 export interface MatchCandidate {
-  kalshiMarket: KalshiMarket;
-  polymarketMarket: PolymarketMarket;
+  marketA: PolymarketMarket;
+  marketB: PolymarketMarket;
   confidence: number;
 }
 
 /**
- * Find potential market pair matches between Kalshi and Polymarket markets.
- * 
+ * Find potential matching markets within a set of Polymarket markets.
+ *
  * Uses an inverted index approach for efficiency:
- * 1. Build token index over Polymarket markets
- * 2. For each Kalshi market, find Polymarket candidates that share at least N tokens
- * 3. Score only the candidate pairs (instead of all N×M pairs)
+ * 1. Build token index over markets
+ * 2. For each market, find candidates that share at least N tokens
+ * 3. Score only the candidate pairs
  */
 export function findMatches(
-  kalshiMarkets: KalshiMarket[],
-  polymarketMarkets: PolymarketMarket[],
+  markets: PolymarketMarket[],
   minConfidence = 0.35,
 ): MatchCandidate[] {
-  logger.info(`Matching ${kalshiMarkets.length} Kalshi × ${polymarketMarkets.length} Polymarket markets`);
+  logger.info(`Matching among ${markets.length} Polymarket markets`);
   const startTime = Date.now();
 
-  // Pre-process Polymarket markets
-  const polyIndexed: IndexedMarket[] = polymarketMarkets.map((pm, i) => {
+  const indexed: IndexedMarket[] = markets.map((pm, i) => {
     const text = pm.question + (pm.eventTitle ? ' ' + pm.eventTitle : '');
     return { index: i, tokens: extractTokens(text), text };
   });
 
-  // Build inverted index over Polymarket tokens
-  const invertedIndex = buildInvertedIndex(polyIndexed);
+  const invertedIndex = buildInvertedIndex(indexed);
 
   const candidates: MatchCandidate[] = [];
   let pairsScored = 0;
-
-  // Minimum shared tokens to even consider a pair
   const MIN_SHARED_TOKENS = 2;
+  const seen = new Set<string>();
 
-  for (const km of kalshiMarkets) {
-    const kalshiText = km.title + (km.subtitle ? ' ' + km.subtitle : '');
-    const kalshiTokens = extractTokens(kalshiText);
+  for (let i = 0; i < markets.length; i++) {
+    const mA = indexed[i];
+    if (mA.tokens.size === 0) continue;
 
-    if (kalshiTokens.size === 0) continue;
-
-    // Find candidate Polymarket markets via inverted index
-    // Count how many tokens each Poly market shares with this Kalshi market
     const candidateCounts = new Map<number, number>();
-    for (const token of kalshiTokens) {
-      const polyIndices = invertedIndex.get(token);
-      if (polyIndices) {
-        for (const idx of polyIndices) {
+    for (const token of mA.tokens) {
+      const indices = invertedIndex.get(token);
+      if (indices) {
+        for (const idx of indices) {
+          if (idx <= i) continue; // avoid duplicates and self-match
           candidateCounts.set(idx, (candidateCounts.get(idx) || 0) + 1);
         }
       }
     }
 
-    // Only score pairs with enough shared tokens
     let bestMatch: MatchCandidate | null = null;
 
-    for (const [polyIdx, sharedCount] of candidateCounts) {
+    for (const [bIdx, sharedCount] of candidateCounts) {
       if (sharedCount < MIN_SHARED_TOKENS) continue;
 
-      const polyM = polyIndexed[polyIdx];
-      const confidence = tokenSimilarity(kalshiTokens, polyM.tokens);
+      const mB = indexed[bIdx];
+      const confidence = tokenSimilarity(mA.tokens, mB.tokens);
       pairsScored++;
 
       if (confidence >= minConfidence) {
-        if (!bestMatch || confidence > bestMatch.confidence) {
-          bestMatch = {
-            kalshiMarket: km,
-            polymarketMarket: polymarketMarkets[polyIdx],
-            confidence,
-          };
+        const key = `${markets[i].id}:${markets[bIdx].id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          if (!bestMatch || confidence > bestMatch.confidence) {
+            bestMatch = {
+              marketA: markets[i],
+              marketB: markets[bIdx],
+              confidence,
+            };
+          }
         }
       }
     }
@@ -159,7 +152,6 @@ export function findMatches(
     }
   }
 
-  // Sort by confidence descending
   candidates.sort((a, b) => b.confidence - a.confidence);
 
   const elapsed = Date.now() - startTime;
@@ -167,10 +159,9 @@ export function findMatches(
     `Found ${candidates.length} match candidates (scored ${pairsScored} pairs in ${elapsed}ms)`
   );
 
-  // Log top matches for visibility
   for (const c of candidates.slice(0, 20)) {
     logger.info(
-      `  Match (${(c.confidence * 100).toFixed(1)}%): "${c.kalshiMarket.title}" ↔ "${c.polymarketMarket.question}"`
+      `  Match (${(c.confidence * 100).toFixed(1)}%): "${c.marketA.question}" ↔ "${c.marketB.question}"`
     );
   }
 
@@ -184,13 +175,12 @@ export function candidatesToPairs(candidates: MatchCandidate[]): MarketPair[] {
   const now = new Date().toISOString();
   return candidates.map((c) => ({
     id: crypto.randomUUID(),
-    kalshiTicker: c.kalshiMarket.ticker,
-    polymarketId: c.polymarketMarket.id,
+    polymarketId: c.marketA.id,
     matchConfidence: c.confidence,
     resolutionDivergenceRisk: 0,
     matchMethod: 'string_similarity' as const,
     status: 'pending_review' as const,
-    notes: `Auto-matched: "${c.kalshiMarket.title}" ↔ "${c.polymarketMarket.question}" (score: ${c.confidence.toFixed(3)})`,
+    notes: `Auto-matched: "${c.marketA.question}" ↔ "${c.marketB.question}" (score: ${c.confidence.toFixed(3)})`,
     createdAt: now,
     updatedAt: now,
   }));

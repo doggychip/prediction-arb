@@ -6,28 +6,6 @@ import { createLogger } from '../logger.js';
 const logger = createLogger('db');
 
 const SCHEMA_SQL = `
--- Kalshi markets
-CREATE TABLE IF NOT EXISTS kalshi_markets (
-  ticker TEXT PRIMARY KEY,
-  event_ticker TEXT NOT NULL,
-  title TEXT NOT NULL,
-  subtitle TEXT,
-  category TEXT,
-  status TEXT NOT NULL,
-  yes_bid INTEGER,
-  yes_ask INTEGER,
-  no_bid INTEGER,
-  no_ask INTEGER,
-  last_price INTEGER,
-  volume INTEGER,
-  volume_24h INTEGER,
-  open_interest INTEGER,
-  rules_primary TEXT,
-  close_time TEXT,
-  notional_value INTEGER DEFAULT 100,
-  updated_at TEXT DEFAULT (datetime('now'))
-);
-
 -- Polymarket markets
 CREATE TABLE IF NOT EXISTS polymarket_markets (
   id TEXT PRIMARY KEY,
@@ -53,7 +31,6 @@ CREATE TABLE IF NOT EXISTS polymarket_markets (
 -- Matched market pairs
 CREATE TABLE IF NOT EXISTS market_pairs (
   id TEXT PRIMARY KEY,
-  kalshi_ticker TEXT NOT NULL REFERENCES kalshi_markets(ticker),
   polymarket_id TEXT NOT NULL REFERENCES polymarket_markets(id),
   match_confidence REAL NOT NULL,
   resolution_divergence_risk REAL DEFAULT 0,
@@ -68,12 +45,7 @@ CREATE TABLE IF NOT EXISTS market_pairs (
 CREATE TABLE IF NOT EXISTS arb_opportunities (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   pair_id TEXT NOT NULL REFERENCES market_pairs(id),
-  kalshi_ticker TEXT NOT NULL,
   polymarket_id TEXT NOT NULL,
-  kalshi_yes_bid INTEGER,
-  kalshi_yes_ask INTEGER,
-  kalshi_no_bid INTEGER,
-  kalshi_no_ask INTEGER,
   poly_yes_bid INTEGER,
   poly_yes_ask INTEGER,
   poly_no_bid INTEGER,
@@ -92,8 +64,6 @@ CREATE TABLE IF NOT EXISTS arb_opportunities (
 CREATE TABLE IF NOT EXISTS price_snapshots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   pair_id TEXT NOT NULL REFERENCES market_pairs(id),
-  kalshi_yes_bid INTEGER,
-  kalshi_yes_ask INTEGER,
   poly_yes_bid INTEGER,
   poly_yes_ask INTEGER,
   spread_cents INTEGER,
@@ -105,7 +75,6 @@ CREATE INDEX IF NOT EXISTS idx_arb_pair_id ON arb_opportunities(pair_id);
 CREATE INDEX IF NOT EXISTS idx_arb_detected_at ON arb_opportunities(detected_at);
 CREATE INDEX IF NOT EXISTS idx_snapshots_pair_id ON price_snapshots(pair_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON price_snapshots(timestamp);
-CREATE INDEX IF NOT EXISTS idx_kalshi_status ON kalshi_markets(status);
 CREATE INDEX IF NOT EXISTS idx_poly_active ON polymarket_markets(active);
 
 -- ============================================================
