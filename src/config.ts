@@ -40,6 +40,10 @@ export interface Config {
   // HTTP request timeout
   requestTimeoutMs: number;
 
+  // Dashboard
+  dashboardPort: number;
+  dashboardEnabled: boolean;
+
   // LLM match verification
   llmApiKey: string;
   llmBaseUrl: string;
@@ -96,6 +100,10 @@ export function loadConfig(): Config {
 
     // HTTP request timeout (default 30s)
     requestTimeoutMs: parseInt(process.env.REQUEST_TIMEOUT_MS || '30000', 10),
+
+    // Dashboard
+    dashboardPort: parseInt(process.env.DASHBOARD_PORT || '3456', 10),
+    dashboardEnabled: process.env.DASHBOARD_ENABLED !== 'false',
 
     // LLM match verification
     llmApiKey: process.env.LLM_API_KEY || process.env.OPENROUTER_API_KEY || '',

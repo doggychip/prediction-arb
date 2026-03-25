@@ -11,6 +11,7 @@
     "lint:fix": "eslint src/ scripts/ --fix",
     "format": "prettier --write 'src/**/*.ts' 'scripts/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts' 'scripts/**/*.ts'",
+    "backtest": "tsx scripts/backtest.ts",
     "fetch-markets": "tsx scripts/fetch-all-markets.ts",
     "generate-key": "tsx scripts/generate-rsa-key.ts"
   },

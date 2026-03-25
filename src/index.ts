@@ -24,6 +24,7 @@ import { kalshiDollarsToCents, type KalshiMarket } from './kalshi/types.js';
 import type { PolymarketMarket } from './polymarket/types.js';
 import { createLogger } from './logger.js';
 import { safeJsonParse, StringArraySchema } from './validation.js';
+import { startDashboard } from './dashboard/server.js';
 
 const logger = createLogger('main');
 
@@ -299,9 +300,21 @@ async function main() {
     }
   }, PRUNE_INTERVAL_MS);
 
+  // --- Step 6: Start dashboard ---
+  let dashboardServer: ReturnType<typeof startDashboard> | null = null;
+  if (config.dashboardEnabled) {
+    dashboardServer = startDashboard(config, db, () => ({
+      oppsFound: statsOppsFound,
+      alertsSent: statsAlertsSent,
+      suppressed: statsSuppressed,
+      cacheSize: priceCache.size,
+    }));
+  }
+
   // --- Graceful shutdown ---
   const shutdown = () => {
     logger.info('Shutting down...');
+    dashboardServer?.close();
     kalshiWs.close();
     polyWs.close();
     db.close();
