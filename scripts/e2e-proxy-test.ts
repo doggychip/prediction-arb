@@ -467,8 +467,140 @@ async function runTests() {
   const afterDel = await api("/api/agents/throwaway");
   assert(afterDel.status === 404, "Deleted agent returns 404");
 
-  // 13. Duplicate slug & subscription rejection
-  console.log("\n13. Edge cases");
+  // 13. Reviews
+  console.log("\n13. Reviews");
+
+  // Other user subscribes to arb-scanner first (required for usage-priced agents)
+  await api("/api/subscriptions", {
+    method: "POST",
+    token: otherToken,
+    body: { agentId: pub.data?.id },
+  });
+
+  // Other user reviews arb-scanner
+  const review1 = await api("/api/agents/arb-scanner/reviews", {
+    method: "POST",
+    token: otherToken,
+    body: { rating: 4, comment: "Great agent for arb scanning!" },
+  });
+  assert(review1.status === 201, "Review submission returns 201");
+  assert(review1.data?.rating === 4, "Review rating is 4");
+  assert(review1.data?.comment === "Great agent for arb scanning!", "Review comment matches");
+  assert(!!review1.data?.userName, "Review includes userName");
+
+  // Duplicate review rejected
+  const dupReview = await api("/api/agents/arb-scanner/reviews", {
+    method: "POST",
+    token: otherToken,
+    body: { rating: 5 },
+  });
+  assert(dupReview.status === 409, "Duplicate review returns 409");
+
+  // Owner can't review own agent
+  const selfReview = await api("/api/agents/arb-scanner/reviews", {
+    method: "POST",
+    token,
+    body: { rating: 5, comment: "My own agent is great" },
+  });
+  assert(selfReview.status === 403, "Owner can't review own agent");
+
+  // Invalid rating rejected
+  const badRating = await api("/api/agents/arb-scanner/reviews", {
+    method: "POST",
+    token: otherToken,
+    body: { rating: 6 },
+  });
+  // Already reviewed so 409, but let's test bad rating with a fresh agent
+  const reviewBadRating = await api("/api/agents/error-agent/reviews", {
+    method: "POST",
+    token: otherToken,
+    body: { rating: 0 },
+  });
+  assert(reviewBadRating.status === 400, "Rating 0 returns 400");
+
+  const reviewBadRating2 = await api("/api/agents/error-agent/reviews", {
+    method: "POST",
+    token: otherToken,
+    body: { rating: 6 },
+  });
+  assert(reviewBadRating2.status === 400, "Rating 6 returns 400");
+
+  // Review appears on agent detail
+  const detailWithReview = await api("/api/agents/arb-scanner");
+  assert(detailWithReview.data?.reviews?.length >= 1, "Agent detail includes the review");
+  assert(detailWithReview.data?.reviews?.[0]?.rating === 4, "Review rating visible on detail");
+
+  // Unauthenticated review rejected
+  const noAuthReview = await api("/api/agents/arb-scanner/reviews", {
+    method: "POST",
+    body: { rating: 3 },
+  });
+  assert(noAuthReview.status === 401, "Unauthenticated review returns 401");
+
+  // 14. Agent editing
+  console.log("\n14. Agent editing");
+
+  const editRes = await api("/api/agents/arb-scanner", {
+    method: "PATCH",
+    token,
+    body: {
+      name: "Arb Scanner Pro",
+      description: "Updated description",
+      category: "analysis",
+      tags: ["arb", "prediction-markets"],
+      rateLimit: 200,
+    },
+  });
+  assert(editRes.status === 200, "Agent edit returns 200");
+
+  // Verify changes
+  const detailAfterEdit = await api("/api/agents/arb-scanner");
+  assert(detailAfterEdit.data?.name === "Arb Scanner Pro", "Name updated");
+  assert(detailAfterEdit.data?.description === "Updated description", "Description updated");
+  assert(detailAfterEdit.data?.category === "analysis", "Category updated");
+  assert(detailAfterEdit.data?.rateLimit === 200, "Rate limit updated");
+  assert(detailAfterEdit.data?.tags?.includes("arb"), "Tags updated");
+
+  // Non-owner can't edit
+  const otherEdit = await api("/api/agents/arb-scanner", {
+    method: "PATCH",
+    token: otherToken,
+    body: { name: "Hacked Name" },
+  });
+  assert(otherEdit.status === 403, "Non-owner can't edit agent");
+
+  // 15. Rate limiting
+  console.log("\n15. Rate limiting");
+
+  // Create an agent with very low rate limit to test
+  const rateLimitedAgent = await api("/api/agents", {
+    method: "POST",
+    token,
+    body: {
+      name: "Rate Limited Agent",
+      slug: "rate-limited",
+      description: "Low rate limit for testing",
+      category: "testing",
+      endpointUrl: `${ENGINE}/api/scan`,
+      pricing: "free",
+      rateLimit: 2,
+    },
+  });
+  assert(rateLimitedAgent.status === 201, "Rate limited agent created");
+
+  // Make 2 calls (within limit)
+  const rlCall1 = await api("/api/call/rate-limited", { method: "POST", apiKey, body: {} });
+  assert(rlCall1.status === 200, "First call within rate limit succeeds");
+  const rlCall2 = await api("/api/call/rate-limited", { method: "POST", apiKey, body: {} });
+  assert(rlCall2.status === 200, "Second call within rate limit succeeds");
+
+  // Third call should be rate limited
+  const rlCall3 = await api("/api/call/rate-limited", { method: "POST", apiKey, body: {} });
+  assert(rlCall3.status === 429, "Third call exceeds rate limit → 429");
+  assert(rlCall3.data?.code === "RATE_LIMITED", "Error code is RATE_LIMITED");
+
+  // 16. Duplicate slug & subscription rejection
+  console.log("\n16. Edge cases");
   const dup = await api("/api/agents", {
     method: "POST",
     token,

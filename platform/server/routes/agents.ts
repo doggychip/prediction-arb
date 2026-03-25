@@ -506,4 +506,88 @@ agentsRouter.patch("/:slug", requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
+// POST /agents/:slug/reviews — submit a review (auth required)
+agentsRouter.post("/:slug/reviews", requireAuth, async (c) => {
+  const userId = c.get("userId");
+  const slug = c.req.param("slug");
+
+  const agent = db
+    .select()
+    .from(agents)
+    .where(eq(agents.slug, slug))
+    .get();
+
+  if (!agent) {
+    return c.json({ error: "Agent not found", code: "NOT_FOUND" }, 404);
+  }
+
+  // Can't review your own agent
+  if (agent.creatorId === userId) {
+    return c.json({ error: "Cannot review your own agent", code: "FORBIDDEN" }, 403);
+  }
+
+  // Must have an active subscription (or agent is free)
+  if (agent.pricing !== "free") {
+    const sub = db
+      .select()
+      .from(subscriptions)
+      .where(
+        and(
+          eq(subscriptions.userId, userId),
+          eq(subscriptions.agentId, agent.id),
+          eq(subscriptions.status, "active")
+        )
+      )
+      .get();
+
+    if (!sub) {
+      return c.json({ error: "Subscription required to review", code: "FORBIDDEN" }, 403);
+    }
+  }
+
+  // Check for existing review
+  const existing = db
+    .select()
+    .from(reviews)
+    .where(and(eq(reviews.userId, userId), eq(reviews.agentId, agent.id)))
+    .get();
+
+  if (existing) {
+    return c.json({ error: "Already reviewed this agent", code: "CONFLICT" }, 409);
+  }
+
+  const body = await c.req.json<{ rating: number; comment?: string }>();
+
+  if (!body.rating || body.rating < 1 || body.rating > 5 || !Number.isInteger(body.rating)) {
+    return c.json({ error: "Rating must be an integer 1-5", code: "VALIDATION" }, 400);
+  }
+
+  const id = nanoid();
+
+  db.insert(reviews)
+    .values({
+      id,
+      userId,
+      agentId: agent.id,
+      rating: body.rating,
+      comment: body.comment || null,
+    })
+    .run();
+
+  // Fetch the user name for the response
+  const reviewer = db
+    .select({ name: creators.name })
+    .from(creators)
+    .where(eq(creators.id, userId))
+    .get();
+
+  return c.json({
+    id,
+    rating: body.rating,
+    comment: body.comment || null,
+    userName: reviewer?.name || "Unknown",
+    createdAt: new Date().toISOString(),
+  }, 201);
+});
+
 export default agentsRouter;

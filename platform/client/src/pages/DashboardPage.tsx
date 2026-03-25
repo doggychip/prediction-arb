@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { subscriptionsApi, keysApi, agentsApi } from "../lib/api";
 
+const CATEGORIES = ["trading", "analysis", "data", "automation", "nlp", "vision", "other"];
+
 interface Props {
   user: { id: string; name: string };
   onNavigate: (page: any) => void;
@@ -15,6 +17,12 @@ export default function DashboardPage({ user, onNavigate }: Props) {
   const [tab, setTab] = useState<"agents" | "subs" | "keys">("agents");
   const [usageSlug, setUsageSlug] = useState<string | null>(null);
   const [usage, setUsage] = useState<any>(null);
+
+  // Edit state
+  const [editSlug, setEditSlug] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Record<string, string>>({});
+  const [editError, setEditError] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => {
     agentsApi.mine().then((d) => setMyAgents(d.agents)).catch(() => {});
@@ -55,6 +63,9 @@ export default function DashboardPage({ user, onNavigate }: Props) {
       setUsageSlug(null);
       setUsage(null);
     }
+    if (editSlug === slug) {
+      setEditSlug(null);
+    }
   }
 
   async function loadUsage(slug: string) {
@@ -73,6 +84,70 @@ export default function DashboardPage({ user, onNavigate }: Props) {
     }
   }
 
+  function startEdit(agent: any) {
+    if (editSlug === agent.slug) {
+      setEditSlug(null);
+      return;
+    }
+    setEditSlug(agent.slug);
+    setEditError("");
+    setEditForm({
+      name: agent.name || "",
+      description: agent.description || "",
+      longDescription: agent.longDescription || "",
+      category: agent.category || "other",
+      tags: Array.isArray(agent.tags) ? agent.tags.join(", ") : "",
+      endpointUrl: agent.endpointUrl || "",
+      docsUrl: agent.docsUrl || "",
+      pricing: agent.pricing || "free",
+      pricePerCall: String(agent.pricePerCall || 0),
+      monthlyPrice: String(agent.monthlyPrice || 0),
+      rateLimit: String(agent.rateLimit || 100),
+    });
+  }
+
+  async function saveEdit(slug: string) {
+    setEditError("");
+    setEditSaving(true);
+    try {
+      const payload: Record<string, any> = {};
+      if (editForm.name) payload.name = editForm.name;
+      if (editForm.description) payload.description = editForm.description;
+      if (editForm.longDescription) payload.longDescription = editForm.longDescription;
+      if (editForm.category) payload.category = editForm.category;
+      if (editForm.tags) payload.tags = editForm.tags.split(",").map((t) => t.trim()).filter(Boolean);
+      if (editForm.endpointUrl) payload.endpointUrl = editForm.endpointUrl;
+      if (editForm.docsUrl) payload.docsUrl = editForm.docsUrl;
+      if (editForm.pricing) payload.pricing = editForm.pricing;
+      payload.pricePerCall = parseFloat(editForm.pricePerCall) || 0;
+      payload.monthlyPrice = parseFloat(editForm.monthlyPrice) || 0;
+      if (editForm.rateLimit) payload.rateLimit = parseInt(editForm.rateLimit) || 100;
+
+      await agentsApi.update(slug, payload);
+
+      // Update local state
+      setMyAgents(myAgents.map((a) =>
+        a.slug === slug
+          ? {
+              ...a,
+              name: payload.name || a.name,
+              description: payload.description || a.description,
+              category: payload.category || a.category,
+              tags: payload.tags || a.tags,
+              pricing: payload.pricing || a.pricing,
+              pricePerCall: payload.pricePerCall,
+              monthlyPrice: payload.monthlyPrice,
+              rateLimit: payload.rateLimit || a.rateLimit,
+            }
+          : a
+      ));
+      setEditSlug(null);
+    } catch (err: any) {
+      setEditError(err.message);
+    }
+    setEditSaving(false);
+  }
+
   function healthBadge(status: string) {
     if (status === "healthy") return <span className="inline-block w-2 h-2 rounded-full bg-green-400 mr-1.5" title="Healthy" />;
     if (status === "unhealthy") return <span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1.5" title="Unhealthy" />;
@@ -85,6 +160,8 @@ export default function DashboardPage({ user, onNavigate }: Props) {
         ? "text-indigo-400 border-b-2 border-indigo-400"
         : "text-gray-500 hover:text-white"
     }`;
+
+  const inputClass = "w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-indigo-500";
 
   return (
     <div>
@@ -143,6 +220,12 @@ export default function DashboardPage({ user, onNavigate }: Props) {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
+                      onClick={() => startEdit(agent)}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 transition"
+                    >
+                      {editSlug === agent.slug ? "Cancel Edit" : "Edit"}
+                    </button>
+                    <button
                       onClick={() => loadUsage(agent.slug)}
                       className="text-xs text-indigo-400 hover:text-indigo-300 transition"
                     >
@@ -183,8 +266,147 @@ export default function DashboardPage({ user, onNavigate }: Props) {
                 </div>
               </div>
 
+              {/* Edit Form */}
+              {editSlug === agent.slug && (
+                <div className="bg-gray-950 border border-gray-800 border-t-0 rounded-b-lg p-4">
+                  {editError && (
+                    <div className="text-sm text-red-400 mb-3">{editError}</div>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Name</label>
+                      <input
+                        value={editForm.name}
+                        onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Category</label>
+                      <select
+                        value={editForm.category}
+                        onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+                        className={inputClass}
+                      >
+                        {CATEGORIES.map((cat) => (
+                          <option key={cat} value={cat}>
+                            {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="mb-3">
+                    <label className="block text-xs text-gray-500 mb-1">Description</label>
+                    <input
+                      value={editForm.description}
+                      onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label className="block text-xs text-gray-500 mb-1">Long Description</label>
+                    <textarea
+                      value={editForm.longDescription}
+                      onChange={(e) => setEditForm({ ...editForm, longDescription: e.target.value })}
+                      rows={3}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Endpoint URL</label>
+                      <input
+                        value={editForm.endpointUrl}
+                        onChange={(e) => setEditForm({ ...editForm, endpointUrl: e.target.value })}
+                        className={inputClass}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Docs URL</label>
+                      <input
+                        value={editForm.docsUrl}
+                        onChange={(e) => setEditForm({ ...editForm, docsUrl: e.target.value })}
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+                  <div className="mb-3">
+                    <label className="block text-xs text-gray-500 mb-1">Tags (comma-separated)</label>
+                    <input
+                      value={editForm.tags}
+                      onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })}
+                      className={inputClass}
+                      placeholder="nlp, sentiment, twitter"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Pricing</label>
+                      <select
+                        value={editForm.pricing}
+                        onChange={(e) => setEditForm({ ...editForm, pricing: e.target.value })}
+                        className={inputClass}
+                      >
+                        <option value="free">Free</option>
+                        <option value="usage">Per Call</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                    </div>
+                    {editForm.pricing === "usage" && (
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">$/call</label>
+                        <input
+                          type="number"
+                          step="0.001"
+                          value={editForm.pricePerCall}
+                          onChange={(e) => setEditForm({ ...editForm, pricePerCall: e.target.value })}
+                          className={inputClass}
+                        />
+                      </div>
+                    )}
+                    {editForm.pricing === "monthly" && (
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">$/month</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editForm.monthlyPrice}
+                          onChange={(e) => setEditForm({ ...editForm, monthlyPrice: e.target.value })}
+                          className={inputClass}
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Rate Limit/min</label>
+                      <input
+                        type="number"
+                        value={editForm.rateLimit}
+                        onChange={(e) => setEditForm({ ...editForm, rateLimit: e.target.value })}
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => saveEdit(agent.slug)}
+                      disabled={editSaving}
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded-lg text-sm transition disabled:opacity-50"
+                    >
+                      {editSaving ? "Saving..." : "Save Changes"}
+                    </button>
+                    <button
+                      onClick={() => setEditSlug(null)}
+                      className="text-gray-400 hover:text-white px-4 py-1.5 rounded-lg text-sm transition"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Usage Stats Panel */}
-              {usageSlug === agent.slug && usage && !usage.error && (
+              {usageSlug === agent.slug && usage && !usage.error && editSlug !== agent.slug && (
                 <div className="bg-gray-950 border border-gray-800 border-t-0 rounded-b-lg p-4">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                     <div className="text-center">

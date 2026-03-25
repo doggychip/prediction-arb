@@ -13,6 +13,13 @@ export default function AgentDetailPage({ slug, user, onNavigate }: Props) {
   const [subscribing, setSubscribing] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
 
+  // Review form state
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState("");
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
+
   useEffect(() => {
     agentsApi
       .get(slug)
@@ -37,6 +44,37 @@ export default function AgentDetailPage({ slug, user, onNavigate }: Props) {
     }
     setSubscribing(false);
   }
+
+  async function handleReviewSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) {
+      onNavigate({ name: "login" });
+      return;
+    }
+    setReviewError("");
+    setReviewSubmitting(true);
+    try {
+      const newReview = await agentsApi.review(slug, {
+        rating: reviewRating,
+        comment: reviewComment || undefined,
+      });
+      setAgent({
+        ...agent,
+        reviews: [newReview, ...(agent.reviews || [])],
+      });
+      setReviewSubmitted(true);
+      setReviewComment("");
+    } catch (err: any) {
+      setReviewError(err.message);
+    }
+    setReviewSubmitting(false);
+  }
+
+  // Check if user already reviewed
+  const userAlreadyReviewed = user && agent?.reviews?.some(
+    (r: any) => r.userName === user.id // fallback check below
+  );
+  const isOwnAgent = user && agent?.creator?.id === user.id;
 
   if (loading) {
     return <div className="text-center text-gray-500 py-16">Loading...</div>;
@@ -133,7 +171,7 @@ export default function AgentDetailPage({ slug, user, onNavigate }: Props) {
                 ? `★ ${(agent.reviews.reduce((s: number, r: any) => s + r.rating, 0) / agent.reviews.length).toFixed(1)}`
                 : "—"}
             </div>
-            <div className="text-xs text-gray-500">Rating</div>
+            <div className="text-xs text-gray-500">Rating ({agent.reviews?.length || 0})</div>
           </div>
         </div>
 
@@ -158,10 +196,66 @@ export default function AgentDetailPage({ slug, user, onNavigate }: Props) {
           </div>
         )}
 
+        {/* Write a Review */}
+        {user && !isOwnAgent && !reviewSubmitted && (
+          <div className="mb-8">
+            <h2 className="text-lg font-semibold text-white mb-3">Write a Review</h2>
+            <form onSubmit={handleReviewSubmit} className="bg-gray-800/50 rounded-lg p-4 space-y-3">
+              {reviewError && (
+                <div className="text-sm text-red-400">{reviewError}</div>
+              )}
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Rating</label>
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setReviewRating(star)}
+                      className={`text-2xl transition ${
+                        star <= reviewRating ? "text-yellow-400" : "text-gray-600"
+                      }`}
+                    >
+                      ★
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Comment (optional)</label>
+                <textarea
+                  value={reviewComment}
+                  onChange={(e) => setReviewComment(e.target.value)}
+                  rows={3}
+                  className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 text-sm"
+                  placeholder="Share your experience with this agent..."
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={reviewSubmitting}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm transition disabled:opacity-50"
+              >
+                {reviewSubmitting ? "Submitting..." : "Submit Review"}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {reviewSubmitted && (
+          <div className="mb-8 bg-green-900/20 border border-green-700 rounded-lg p-3 text-sm text-green-400">
+            Review submitted successfully!
+          </div>
+        )}
+
         {/* Reviews */}
-        {agent.reviews?.length > 0 && (
-          <div>
-            <h2 className="text-lg font-semibold text-white mb-3">Reviews</h2>
+        <div>
+          <h2 className="text-lg font-semibold text-white mb-3">
+            Reviews {agent.reviews?.length > 0 && `(${agent.reviews.length})`}
+          </h2>
+          {(!agent.reviews || agent.reviews.length === 0) ? (
+            <p className="text-sm text-gray-500">No reviews yet. Be the first to review!</p>
+          ) : (
             <div className="space-y-4">
               {agent.reviews.map((review: any) => (
                 <div
@@ -181,8 +275,8 @@ export default function AgentDetailPage({ slug, user, onNavigate }: Props) {
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

@@ -94,7 +94,6 @@ proxyRouter.post("/:slug", async (c) => {
   }
 
   // 4. Rate limiting (simple per-minute check)
-  const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString();
   const recentCalls = db
     .select({ count: sql<number>`count(*)` })
     .from(usageLogs)
@@ -102,7 +101,7 @@ proxyRouter.post("/:slug", async (c) => {
       and(
         eq(usageLogs.apiKeyId, keyRecord.id),
         eq(usageLogs.agentId, agent.id),
-        sql`${usageLogs.createdAt} > ${oneMinuteAgo}`
+        sql`${usageLogs.createdAt} > datetime('now', '-1 minute')`
       )
     )
     .get();

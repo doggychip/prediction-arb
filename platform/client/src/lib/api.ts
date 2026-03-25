@@ -97,6 +97,11 @@ export const agentsApi = {
     }),
   remove: (slug: string) =>
     request<{ ok: boolean }>(`/agents/${slug}`, { method: "DELETE" }),
+  review: (slug: string, data: { rating: number; comment?: string }) =>
+    request<{ id: string; rating: number; comment: string | null; userName: string; createdAt: string }>(
+      `/agents/${slug}/reviews`,
+      { method: "POST", body: JSON.stringify(data) }
+    ),
 };
 
 // Subscriptions
