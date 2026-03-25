@@ -18,7 +18,9 @@ import { PolymarketWebSocket } from './polymarket/websocket.js';
 import { findMatches, candidatesToPairs } from './matching/matcher.js';
 import { verifyMatchesWithLlm } from './matching/llm-verifier.js';
 import { analyzeArb, dollarsToCents, type PairPrices, type ArbThresholds } from './arb/detector.js';
-import { sendDiscordAlert } from './alerts/discord.js';
+import { sendAlerts } from './alerts/notifier.js';
+import { PriceUpdateRateLimiter } from './rate-limiter.js';
+import { TradeExecutor } from './execution/executor.js';
 import type { PriceUpdate } from './types.js';
 import { kalshiDollarsToCents, type KalshiMarket } from './kalshi/types.js';
 import type { PolymarketMarket } from './polymarket/types.js';
@@ -245,16 +247,35 @@ async function main() {
     `Tracking ${kalshiTickers.length} Kalshi tickers and ${polyTokenIds.length} Polymarket tokens`,
   );
 
-  // --- Step 4: Start WebSocket connections ---
+  // --- Step 3.5: Initialize execution engine ---
+  const executor = new TradeExecutor({
+    mode: config.executionMode,
+    maxPositionDollars: config.executionMaxPositionDollars,
+    maxDailyTrades: config.executionMaxDailyTrades,
+    minNetSpreadCents: config.executionMinNetSpreadCents,
+    minDepthDollars: config.executionMinDepthDollars,
+    killSwitchEnabled: config.executionKillSwitch,
+  });
+
+  // --- Step 4: Start WebSocket connections with rate limiting ---
+  const rateLimiter = new PriceUpdateRateLimiter(
+    (update) => handlePriceUpdate(db, config, executor, update),
+    {
+      maxEventsPerSecond: config.rateLimitEventsPerSecond,
+      maxQueueSize: config.rateLimitMaxQueueSize,
+    },
+  );
+  rateLimiter.start();
+
   const kalshiWs = new KalshiWebSocket(config);
   const polyWs = new PolymarketWebSocket(config);
 
   kalshiWs.on('priceUpdate', (update: PriceUpdate) => {
-    handlePriceUpdate(db, config, update);
+    rateLimiter.enqueue(update);
   });
 
   polyWs.on('priceUpdate', (update: PriceUpdate) => {
-    handlePriceUpdate(db, config, update);
+    rateLimiter.enqueue(update);
   });
 
   if (kalshiTickers.length > 0) {
@@ -280,9 +301,13 @@ async function main() {
       }
     }
 
+    const rlStats = rateLimiter.getStats();
+    const exStats = executor.getStats();
     logger.info(
-      `[Stats] Pairs: ${allPairs.length} | Opps found: ${statsOppsFound} | Alerts sent: ${statsAlertsSent} | ` +
-        `Suppressed: ${statsSuppressed} | Cache size: ${priceCache.size}`,
+      `[Stats] Pairs: ${allPairs.length} | Opps: ${statsOppsFound} | Alerts: ${statsAlertsSent} | ` +
+        `Suppressed: ${statsSuppressed} | Cache: ${priceCache.size} | ` +
+        `Queue: ${rlStats.queueSize} | Dropped: ${rlStats.dropped} | ` +
+        `Exec: ${exStats.mode} trades=${exStats.tradesToday} pnl=${exStats.totalPnlCents}¢`,
     );
   }, STATS_INTERVAL_MS);
 
@@ -308,12 +333,15 @@ async function main() {
       alertsSent: statsAlertsSent,
       suppressed: statsSuppressed,
       cacheSize: priceCache.size,
+      ...rateLimiter.getStats(),
+      execution: executor.getStats(),
     }));
   }
 
   // --- Graceful shutdown ---
   const shutdown = () => {
     logger.info('Shutting down...');
+    rateLimiter.stop();
     dashboardServer?.close();
     kalshiWs.close();
     polyWs.close();
@@ -330,6 +358,7 @@ async function main() {
 function handlePriceUpdate(
   db: ReturnType<typeof initDatabase>,
   config: Config,
+  executor: TradeExecutor,
   update: PriceUpdate,
 ) {
   // Find relevant pairs
@@ -454,13 +483,18 @@ function handlePriceUpdate(
           lastNetSpread: analysis.best.netSpreadCents,
         });
 
-        sendDiscordAlert(config.discordWebhookUrl, analysis.best, ref.kalshiTitle, ref.polyQuestion)
-          .then(() => {
-            statsAlertsSent++;
+        sendAlerts(config, analysis.best, ref.kalshiTitle, ref.polyQuestion)
+          .then((sent) => {
+            statsAlertsSent += sent;
           })
           .catch(() => {
-            // Already logged inside sendDiscordAlert
+            // Already logged inside notifier
           });
+
+        // Attempt execution (paper or live)
+        executor.execute(analysis.best).catch((err) => {
+          logger.error('Execution error', { error: (err as Error).message });
+        });
       } else {
         statsSuppressed++;
       }

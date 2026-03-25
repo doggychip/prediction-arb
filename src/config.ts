@@ -19,6 +19,17 @@ export interface Config {
   // Discord
   discordWebhookUrl: string;
 
+  // Slack
+  slackWebhookUrl: string;
+
+  // Telegram
+  telegramBotToken: string;
+  telegramChatId: string;
+
+  // Email (HTTP relay endpoint)
+  emailSmtpUrl: string;
+  emailTo: string;
+
   // Database
   dbPath: string;
 
@@ -39,6 +50,18 @@ export interface Config {
 
   // HTTP request timeout
   requestTimeoutMs: number;
+
+  // Rate limiting
+  rateLimitEventsPerSecond: number;
+  rateLimitMaxQueueSize: number;
+
+  // Execution
+  executionMode: 'disabled' | 'paper' | 'live';
+  executionMaxPositionDollars: number;
+  executionMaxDailyTrades: number;
+  executionMinNetSpreadCents: number;
+  executionMinDepthDollars: number;
+  executionKillSwitch: boolean;
 
   // Dashboard
   dashboardPort: number;
@@ -80,6 +103,11 @@ export function loadConfig(): Config {
     polymarketWsUrl: 'wss://ws-subscriptions-clob.polymarket.com/ws/market',
 
     discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL || '',
+    slackWebhookUrl: process.env.SLACK_WEBHOOK_URL || '',
+    telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    telegramChatId: process.env.TELEGRAM_CHAT_ID || '',
+    emailSmtpUrl: process.env.EMAIL_SMTP_URL || '',
+    emailTo: process.env.EMAIL_TO || '',
 
     dbPath: process.env.DB_PATH || 'data/arb.db',
 
@@ -100,6 +128,18 @@ export function loadConfig(): Config {
 
     // HTTP request timeout (default 30s)
     requestTimeoutMs: parseInt(process.env.REQUEST_TIMEOUT_MS || '30000', 10),
+
+    // Rate limiting
+    rateLimitEventsPerSecond: parseInt(process.env.RATE_LIMIT_EVENTS_PER_SECOND || '100', 10),
+    rateLimitMaxQueueSize: parseInt(process.env.RATE_LIMIT_MAX_QUEUE_SIZE || '5000', 10),
+
+    // Execution
+    executionMode: (process.env.EXECUTION_MODE || 'disabled') as 'disabled' | 'paper' | 'live',
+    executionMaxPositionDollars: parseFloat(process.env.EXECUTION_MAX_POSITION_DOLLARS || '1000'),
+    executionMaxDailyTrades: parseInt(process.env.EXECUTION_MAX_DAILY_TRADES || '50', 10),
+    executionMinNetSpreadCents: parseInt(process.env.EXECUTION_MIN_NET_SPREAD_CENTS || '3', 10),
+    executionMinDepthDollars: parseFloat(process.env.EXECUTION_MIN_DEPTH_DOLLARS || '100'),
+    executionKillSwitch: process.env.EXECUTION_KILL_SWITCH !== 'false',
 
     // Dashboard
     dashboardPort: parseInt(process.env.DASHBOARD_PORT || '3456', 10),
