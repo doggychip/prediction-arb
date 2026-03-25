@@ -10,6 +10,7 @@ import {
   usageLogs,
 } from "../../shared/schema.js";
 import { requireAuth } from "../middleware/auth.js";
+import { notify } from "../services/notifications.js";
 import type { PublishAgentRequest } from "../../shared/types.js";
 
 const agentsRouter = new Hono();
@@ -291,6 +292,19 @@ agentsRouter.get("/", async (c) => {
 
   const results = query.all();
 
+  // Get total count for pagination
+  let totalCount: number;
+  if (category) {
+    totalCount = db.select({ count: sql<number>`count(*)` }).from(agents)
+      .where(and(eq(agents.status, "active"), eq(agents.category, category))).get()?.count || 0;
+  } else if (search) {
+    totalCount = db.select({ count: sql<number>`count(*)` }).from(agents)
+      .where(and(eq(agents.status, "active"), like(agents.name, `%${search}%`))).get()?.count || 0;
+  } else {
+    totalCount = db.select({ count: sql<number>`count(*)` }).from(agents)
+      .where(eq(agents.status, "active")).get()?.count || 0;
+  }
+
   // Enrich with subscriber count and avg rating
   const enriched = results.map((agent) => {
     const subCount = db
@@ -327,7 +341,7 @@ agentsRouter.get("/", async (c) => {
     };
   });
 
-  return c.json({ agents: enriched, total: enriched.length });
+  return c.json({ agents: enriched, total: totalCount, limit, offset });
 });
 
 // GET /agents/:slug — agent detail
@@ -580,6 +594,15 @@ agentsRouter.post("/:slug/reviews", requireAuth, async (c) => {
     .from(creators)
     .where(eq(creators.id, userId))
     .get();
+
+  // Notify agent creator
+  notify({
+    userId: agent.creatorId,
+    type: "review.created",
+    title: `New ${body.rating}★ review on ${agent.name}`,
+    body: body.comment || undefined,
+    metadata: { agentId: agent.id, agentSlug: slug, reviewId: id, rating: body.rating },
+  });
 
   return c.json({
     id,

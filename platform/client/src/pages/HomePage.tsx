@@ -11,6 +11,8 @@ const CATEGORIES = [
   { key: "vision", label: "Vision" },
 ];
 
+const PAGE_SIZE = 12;
+
 interface Props {
   onNavigate: (page: any) => void;
 }
@@ -21,30 +23,44 @@ export default function HomePage({ onNavigate }: Props) {
   const [category, setCategory] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
-    loadAgents();
+    setPage(0);
+    loadAgents(0);
     statsApi.get().then(setStats).catch(() => {});
   }, [category]);
 
-  async function loadAgents() {
+  async function loadAgents(pageNum: number) {
     setLoading(true);
     try {
-      const params: Record<string, string> = {};
+      const params: Record<string, any> = { limit: PAGE_SIZE, offset: pageNum * PAGE_SIZE };
       if (category) params.category = category;
       if (search) params.q = search;
       const data = await agentsApi.list(params);
       setAgents(data.agents);
+      setTotal(data.total);
     } catch {
       setAgents([]);
+      setTotal(0);
     }
     setLoading(false);
   }
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    loadAgents();
+    setPage(0);
+    loadAgents(0);
   }
+
+  function goToPage(p: number) {
+    setPage(p);
+    loadAgents(p);
+    window.scrollTo(0, 0);
+  }
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
 
   function pricingLabel(agent: any): string {
     if (agent.pricing === "free") return "Free";
@@ -120,58 +136,102 @@ export default function HomePage({ onNavigate }: Props) {
           No agents found. Be the first to publish one!
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {agents.map((agent) => (
-            <button
-              key={agent.id}
-              onClick={() => onNavigate({ name: "agent", slug: agent.slug })}
-              className="bg-gray-900 border border-gray-800 rounded-xl p-6 text-left hover:border-indigo-500/50 transition group"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <h3 className="text-lg font-semibold text-white group-hover:text-indigo-400 transition flex items-center">
-                  {agent.healthStatus === "healthy" && (
-                    <span className="inline-block w-2 h-2 rounded-full bg-green-400 mr-2 flex-shrink-0" title="Healthy" />
-                  )}
-                  {agent.healthStatus === "unhealthy" && (
-                    <span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-2 flex-shrink-0" title="Unhealthy" />
-                  )}
-                  {agent.name}
-                </h3>
-                <span className="text-xs bg-gray-800 text-gray-400 px-2 py-1 rounded">
-                  {pricingLabel(agent)}
-                </span>
-              </div>
-              <p className="text-sm text-gray-400 mb-4 line-clamp-2">
-                {agent.description}
-              </p>
-              <div className="flex items-center justify-between text-xs text-gray-500">
-                <span>
-                  by{" "}
-                  <span className="text-gray-300">
-                    {agent.creator.name}
-                    {agent.creator.verified && " ✓"}
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {agents.map((agent) => (
+              <button
+                key={agent.id}
+                onClick={() => onNavigate({ name: "agent", slug: agent.slug })}
+                className="bg-gray-900 border border-gray-800 rounded-xl p-6 text-left hover:border-indigo-500/50 transition group"
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-white group-hover:text-indigo-400 transition flex items-center">
+                    {agent.healthStatus === "healthy" && (
+                      <span className="inline-block w-2 h-2 rounded-full bg-green-400 mr-2 flex-shrink-0" title="Healthy" />
+                    )}
+                    {agent.healthStatus === "unhealthy" && (
+                      <span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-2 flex-shrink-0" title="Unhealthy" />
+                    )}
+                    {agent.name}
+                  </h3>
+                  <span className="text-xs bg-gray-800 text-gray-400 px-2 py-1 rounded">
+                    {pricingLabel(agent)}
                   </span>
-                </span>
-                <div className="flex gap-3">
-                  {agent.avgRating > 0 && (
-                    <span>★ {agent.avgRating}</span>
-                  )}
-                  <span>{agent.subscriberCount} subs</span>
                 </div>
-              </div>
-              <div className="flex gap-1 mt-3 flex-wrap">
-                {(agent.tags || []).slice(0, 3).map((tag: string) => (
-                  <span
-                    key={tag}
-                    className="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded"
-                  >
-                    {tag}
+                <p className="text-sm text-gray-400 mb-4 line-clamp-2">
+                  {agent.description}
+                </p>
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span>
+                    by{" "}
+                    <span className="text-gray-300">
+                      {agent.creator.name}
+                      {agent.creator.verified && " ✓"}
+                    </span>
                   </span>
+                  <div className="flex gap-3">
+                    {agent.avgRating > 0 && (
+                      <span>★ {agent.avgRating}</span>
+                    )}
+                    <span>{agent.subscriberCount} subs</span>
+                  </div>
+                </div>
+                <div className="flex gap-1 mt-3 flex-wrap">
+                  {(agent.tags || []).slice(0, 3).map((tag: string) => (
+                    <span
+                      key={tag}
+                      className="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-8">
+              <button
+                onClick={() => goToPage(page - 1)}
+                disabled={page === 0}
+                className="px-3 py-1.5 text-sm rounded-lg bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition"
+              >
+                Prev
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i)
+                .filter((i) => i === 0 || i === totalPages - 1 || Math.abs(i - page) <= 2)
+                .map((i, idx, arr) => (
+                  <React.Fragment key={i}>
+                    {idx > 0 && arr[idx - 1] !== i - 1 && (
+                      <span className="text-gray-600 px-1">...</span>
+                    )}
+                    <button
+                      onClick={() => goToPage(i)}
+                      className={`px-3 py-1.5 text-sm rounded-lg transition ${
+                        i === page
+                          ? "bg-indigo-600 text-white"
+                          : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                      }`}
+                    >
+                      {i + 1}
+                    </button>
+                  </React.Fragment>
                 ))}
-              </div>
-            </button>
-          ))}
-        </div>
+              <button
+                onClick={() => goToPage(page + 1)}
+                disabled={page >= totalPages - 1}
+                className="px-3 py-1.5 text-sm rounded-lg bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition"
+              >
+                Next
+              </button>
+              <span className="text-xs text-gray-600 ml-2">
+                {total} agent{total !== 1 ? "s" : ""}
+              </span>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

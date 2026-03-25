@@ -12,6 +12,7 @@ export default function ProfilePage({ user, onUserUpdate }: Props) {
     email: string;
     bio: string;
     verified: boolean;
+    emailVerified: boolean;
     createdAt: string;
     agentCount: number;
   } | null>(null);
@@ -23,6 +24,17 @@ export default function ProfilePage({ user, onUserUpdate }: Props) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  // Password change
+  const [showPwChange, setShowPwChange] = useState(false);
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [pwSaving, setPwSaving] = useState(false);
+
+  // Email verification
+  const [verifying, setVerifying] = useState(false);
+  const [verifyToken, setVerifyToken] = useState("");
+  const [showVerifyInput, setShowVerifyInput] = useState(false);
+
   useEffect(() => {
     auth.me().then((p) => {
       setProfile({
@@ -30,6 +42,7 @@ export default function ProfilePage({ user, onUserUpdate }: Props) {
         email: p.email,
         bio: p.bio || "",
         verified: p.verified ?? false,
+        emailVerified: p.emailVerified ?? false,
         createdAt: p.createdAt || "",
         agentCount: p.agentCount,
       });
@@ -59,9 +72,65 @@ export default function ProfilePage({ user, onUserUpdate }: Props) {
     setSaving(false);
   }
 
+  async function handlePasswordChange(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setSuccess("");
+    setPwSaving(true);
+    try {
+      await auth.changePassword({ currentPassword: currentPw, newPassword: newPw });
+      setSuccess("Password changed successfully");
+      setShowPwChange(false);
+      setCurrentPw("");
+      setNewPw("");
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (err: any) {
+      setError(err.message);
+    }
+    setPwSaving(false);
+  }
+
+  async function handleSendVerification() {
+    setError("");
+    setSuccess("");
+    setVerifying(true);
+    try {
+      const res = await auth.sendVerification();
+      if (res.token) {
+        // Dev mode: got token directly
+        setVerifyToken(res.token);
+        setShowVerifyInput(true);
+        setSuccess("Verification token generated (dev mode)");
+      } else {
+        setSuccess(res.message);
+        setShowVerifyInput(true);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    }
+    setVerifying(false);
+  }
+
+  async function handleConfirmVerification(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setSuccess("");
+    try {
+      await auth.confirmVerification(verifyToken);
+      setProfile((p) => p ? { ...p, emailVerified: true } : p);
+      setSuccess("Email verified!");
+      setShowVerifyInput(false);
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
   if (!profile) {
     return <div className="text-gray-500">Loading profile...</div>;
   }
+
+  const inputClass = "w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500";
 
   return (
     <div>
@@ -93,7 +162,20 @@ export default function ProfilePage({ user, onUserUpdate }: Props) {
                   </span>
                 )}
               </h2>
-              <p className="text-sm text-gray-400">{profile.email}</p>
+              <p className="text-sm text-gray-400 flex items-center gap-2">
+                {profile.email}
+                {profile.emailVerified ? (
+                  <span className="text-xs text-green-400">(verified)</span>
+                ) : (
+                  <button
+                    onClick={handleSendVerification}
+                    disabled={verifying}
+                    className="text-xs text-yellow-400 hover:text-yellow-300 transition"
+                  >
+                    {verifying ? "Sending..." : "Verify email"}
+                  </button>
+                )}
+              </p>
               {profile.createdAt && (
                 <p className="text-xs text-gray-600 mt-1">
                   Joined {new Date(profile.createdAt).toLocaleDateString()}
@@ -101,15 +183,76 @@ export default function ProfilePage({ user, onUserUpdate }: Props) {
               )}
             </div>
           </div>
-          {!editing && (
+          <div className="flex gap-3">
+            {!editing && (
+              <button
+                onClick={() => setEditing(true)}
+                className="text-sm text-indigo-400 hover:text-indigo-300 transition"
+              >
+                Edit Profile
+              </button>
+            )}
             <button
-              onClick={() => setEditing(true)}
-              className="text-sm text-indigo-400 hover:text-indigo-300 transition"
+              onClick={() => setShowPwChange(!showPwChange)}
+              className="text-sm text-gray-400 hover:text-white transition"
             >
-              Edit Profile
+              {showPwChange ? "Cancel" : "Change Password"}
             </button>
-          )}
+          </div>
         </div>
+
+        {/* Email verification input */}
+        {showVerifyInput && !profile.emailVerified && (
+          <form onSubmit={handleConfirmVerification} className="mb-4 flex gap-2">
+            <input
+              value={verifyToken}
+              onChange={(e) => setVerifyToken(e.target.value)}
+              placeholder="Paste verification token"
+              className="flex-1 bg-gray-950 border border-gray-700 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+            />
+            <button
+              type="submit"
+              className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm transition"
+            >
+              Confirm
+            </button>
+          </form>
+        )}
+
+        {/* Password change form */}
+        {showPwChange && (
+          <form onSubmit={handlePasswordChange} className="mb-6 space-y-3 border-b border-gray-800 pb-6">
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Current Password</label>
+              <input
+                type="password"
+                value={currentPw}
+                onChange={(e) => setCurrentPw(e.target.value)}
+                required
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">New Password</label>
+              <input
+                type="password"
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                required
+                minLength={8}
+                className={inputClass}
+              />
+              <p className="text-xs text-gray-600 mt-1">Minimum 8 characters</p>
+            </div>
+            <button
+              type="submit"
+              disabled={pwSaving}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm transition disabled:opacity-50"
+            >
+              {pwSaving ? "Changing..." : "Update Password"}
+            </button>
+          </form>
+        )}
 
         {editing ? (
           <div className="space-y-4">
@@ -118,7 +261,7 @@ export default function ProfilePage({ user, onUserUpdate }: Props) {
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500"
+                className={inputClass}
               />
             </div>
             <div>
@@ -128,7 +271,7 @@ export default function ProfilePage({ user, onUserUpdate }: Props) {
                 onChange={(e) => setBio(e.target.value)}
                 rows={3}
                 placeholder="Tell other developers about yourself..."
-                className="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 resize-none"
+                className={`${inputClass} placeholder-gray-500 resize-none`}
               />
             </div>
             <div className="flex gap-3">
@@ -164,7 +307,7 @@ export default function ProfilePage({ user, onUserUpdate }: Props) {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 mb-8">
+      <div className="grid grid-cols-3 gap-4 mb-8">
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 text-center">
           <p className="text-2xl font-bold text-white">{profile.agentCount}</p>
           <p className="text-sm text-gray-500">Published Agents</p>
@@ -174,6 +317,12 @@ export default function ProfilePage({ user, onUserUpdate }: Props) {
             {profile.verified ? "Yes" : "No"}
           </p>
           <p className="text-sm text-gray-500">Verified Creator</p>
+        </div>
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 text-center">
+          <p className="text-2xl font-bold text-white">
+            {profile.emailVerified ? "Yes" : "No"}
+          </p>
+          <p className="text-sm text-gray-500">Email Verified</p>
         </div>
       </div>
 

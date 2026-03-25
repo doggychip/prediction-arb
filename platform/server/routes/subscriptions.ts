@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { db } from "../db/index.js";
 import { subscriptions, agents, creators } from "../../shared/schema.js";
 import { requireAuth } from "../middleware/auth.js";
+import { notify } from "../services/notifications.js";
 
 const subsRouter = new Hono();
 
@@ -67,6 +68,21 @@ subsRouter.post("/", requireAuth, async (c) => {
   db.insert(subscriptions)
     .values({ id, userId, agentId, plan: agent.pricing })
     .run();
+
+  // Notify agent creator about new subscriber
+  const subscriber = db
+    .select({ name: creators.name })
+    .from(creators)
+    .where(eq(creators.id, userId))
+    .get();
+
+  notify({
+    userId: agent.creatorId,
+    type: "subscription.created",
+    title: `New subscriber to ${agent.name}`,
+    body: `${subscriber?.name || "Someone"} subscribed to your agent`,
+    metadata: { agentId, agentSlug: agent.slug, subscriberId: userId },
+  });
 
   return c.json({ id, status: "active" }, 201);
 });

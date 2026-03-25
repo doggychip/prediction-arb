@@ -58,6 +58,7 @@ export const auth = {
       bio: string | null;
       avatarUrl: string | null;
       verified: boolean;
+      emailVerified: boolean;
       createdAt: string;
       agentCount: number;
     }>("/auth/me"),
@@ -66,13 +67,32 @@ export const auth = {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
+  changePassword: (data: { currentPassword: string; newPassword: string }) =>
+    request<{ ok: boolean }>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  sendVerification: () =>
+    request<{ ok: boolean; token?: string; message: string }>("/auth/verify-email/send", {
+      method: "POST",
+    }),
+  confirmVerification: (token: string) =>
+    request<{ ok: boolean; message: string }>("/auth/verify-email/confirm", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
 };
 
 // Agents
 export const agentsApi = {
-  list: (params?: { category?: string; q?: string }) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString();
-    return request<{ agents: any[]; total: number }>(`/agents${qs ? `?${qs}` : ""}`);
+  list: (params?: { category?: string; q?: string; limit?: number; offset?: number }) => {
+    const filtered = Object.fromEntries(
+      Object.entries(params || {}).filter(([, v]) => v !== undefined && v !== "")
+    );
+    const qs = new URLSearchParams(filtered as Record<string, string>).toString();
+    return request<{ agents: any[]; total: number; limit: number; offset: number }>(
+      `/agents${qs ? `?${qs}` : ""}`
+    );
   },
   get: (slug: string) => request<any>(`/agents/${slug}`),
   create: (data: any) =>
@@ -125,6 +145,46 @@ export const keysApi = {
       body: JSON.stringify({ name }),
     }),
   revoke: (id: string) => request<any>(`/keys/${id}`, { method: "DELETE" }),
+};
+
+// Notifications
+export const notificationsApi = {
+  list: (params?: { limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams(
+      Object.fromEntries(Object.entries(params || {}).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]))
+    ).toString();
+    return request<{ notifications: any[]; unreadCount: number }>(
+      `/notifications${qs ? `?${qs}` : ""}`
+    );
+  },
+  markRead: (id: string) =>
+    request<{ ok: boolean }>(`/notifications/${id}/read`, { method: "PATCH" }),
+  markAllRead: () =>
+    request<{ ok: boolean }>("/notifications/read-all", { method: "POST" }),
+  // Webhooks
+  listWebhooks: () => request<{ webhooks: any[] }>("/notifications/webhooks"),
+  createWebhook: (data: { url: string; events: string[] }) =>
+    request<{ id: string; secret: string }>("/notifications/webhooks", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  deleteWebhook: (id: string) =>
+    request<{ ok: boolean }>(`/notifications/webhooks/${id}`, { method: "DELETE" }),
+};
+
+// Billing
+export const billingApi = {
+  get: () =>
+    request<{ account: any; payments: any[]; stripeEnabled: boolean }>("/billing"),
+  upgrade: (plan: string) =>
+    request<{ ok: boolean; plan: string }>("/billing/upgrade", {
+      method: "POST",
+      body: JSON.stringify({ plan }),
+    }),
+  connect: () =>
+    request<{ ok: boolean; connected: boolean }>("/billing/connect", { method: "POST" }),
+  revenue: () =>
+    request<{ agents: any[]; totalEstimatedMonthly: number }>("/billing/revenue"),
 };
 
 // Stats

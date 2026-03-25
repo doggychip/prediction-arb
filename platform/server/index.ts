@@ -10,6 +10,8 @@ import agentsRoutes from "./routes/agents.js";
 import subsRoutes from "./routes/subscriptions.js";
 import keysRoutes from "./routes/keys.js";
 import proxyRoutes from "./routes/proxy.js";
+import notifRoutes from "./routes/notifications.js";
+import billingRoutes from "./routes/billing.js";
 import { startHealthChecker } from "./health-checker.js";
 
 const app = new Hono();
@@ -27,6 +29,8 @@ app.route("/api/agents", agentsRoutes);
 app.route("/api/subscriptions", subsRoutes);
 app.route("/api/keys", keysRoutes);
 app.route("/api/call", proxyRoutes);
+app.route("/api/notifications", notifRoutes);
+app.route("/api/billing", billingRoutes);
 
 // Stats endpoint
 app.get("/api/stats", async (c) => {

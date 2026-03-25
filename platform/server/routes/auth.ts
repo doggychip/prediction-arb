@@ -3,7 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { hash, verify } from "argon2";
 import { db } from "../db/index.js";
-import { creators, agents } from "../../shared/schema.js";
+import { creators, agents, emailVerifications } from "../../shared/schema.js";
 import { createToken, requireAuth } from "../middleware/auth.js";
 import type { RegisterRequest, LoginRequest } from "../../shared/types.js";
 
@@ -96,6 +96,7 @@ auth.get("/me", requireAuth, async (c) => {
       bio: creators.bio,
       avatarUrl: creators.avatarUrl,
       verified: creators.verified,
+      emailVerified: creators.emailVerified,
       createdAt: creators.createdAt,
     })
     .from(creators)
@@ -139,6 +140,111 @@ auth.patch("/me", requireAuth, async (c) => {
     .run();
 
   return c.json({ ok: true });
+});
+
+// POST /auth/change-password
+auth.post("/change-password", requireAuth, async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json<{ currentPassword: string; newPassword: string }>();
+
+  if (!body.currentPassword || !body.newPassword) {
+    return c.json({ error: "Both currentPassword and newPassword required", code: "VALIDATION" }, 400);
+  }
+
+  if (body.newPassword.length < 8) {
+    return c.json({ error: "New password must be at least 8 characters", code: "VALIDATION" }, 400);
+  }
+
+  const user = db.select().from(creators).where(eq(creators.id, userId)).get();
+  if (!user) {
+    return c.json({ error: "User not found", code: "NOT_FOUND" }, 404);
+  }
+
+  const valid = await verify(user.passwordHash, body.currentPassword);
+  if (!valid) {
+    return c.json({ error: "Current password is incorrect", code: "UNAUTHORIZED" }, 401);
+  }
+
+  const newHash = await hash(body.newPassword);
+  db.update(creators)
+    .set({ passwordHash: newHash })
+    .where(eq(creators.id, userId))
+    .run();
+
+  return c.json({ ok: true });
+});
+
+// POST /auth/verify-email/send — send verification token
+auth.post("/verify-email/send", requireAuth, async (c) => {
+  const userId = c.get("userId");
+
+  const user = db
+    .select({ email: creators.email, emailVerified: creators.emailVerified })
+    .from(creators)
+    .where(eq(creators.id, userId))
+    .get();
+
+  if (!user) {
+    return c.json({ error: "User not found", code: "NOT_FOUND" }, 404);
+  }
+
+  if (user.emailVerified) {
+    return c.json({ error: "Email already verified", code: "CONFLICT" }, 409);
+  }
+
+  const token = nanoid(32);
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h
+
+  db.insert(emailVerifications)
+    .values({ id: nanoid(), userId, token, expiresAt })
+    .run();
+
+  // In production: send email with verification link
+  // For now, return token directly (dev mode)
+  const emailEnabled = !!process.env.SMTP_HOST;
+
+  return c.json({
+    ok: true,
+    message: emailEnabled
+      ? "Verification email sent"
+      : "Email sending not configured — use token directly",
+    ...(emailEnabled ? {} : { token }),
+  }, 201);
+});
+
+// POST /auth/verify-email/confirm — confirm email with token
+auth.post("/verify-email/confirm", async (c) => {
+  const { token } = await c.req.json<{ token: string }>();
+
+  if (!token) {
+    return c.json({ error: "Token required", code: "VALIDATION" }, 400);
+  }
+
+  const record = db
+    .select()
+    .from(emailVerifications)
+    .where(eq(emailVerifications.token, token))
+    .get();
+
+  if (!record) {
+    return c.json({ error: "Invalid token", code: "NOT_FOUND" }, 404);
+  }
+
+  if (new Date(record.expiresAt) < new Date()) {
+    return c.json({ error: "Token expired", code: "EXPIRED" }, 410);
+  }
+
+  db.update(creators)
+    .set({ emailVerified: true })
+    .where(eq(creators.id, record.userId))
+    .run();
+
+  // Clean up used token
+  db.delete(emailVerifications)
+    .where(eq(emailVerifications.id, record.id))
+    .run();
+
+  return c.json({ ok: true, message: "Email verified" });
 });
 
 export default auth;

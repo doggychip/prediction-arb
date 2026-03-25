@@ -599,8 +599,198 @@ async function runTests() {
   assert(rlCall3.status === 429, "Third call exceeds rate limit → 429");
   assert(rlCall3.data?.code === "RATE_LIMITED", "Error code is RATE_LIMITED");
 
-  // 16. Duplicate slug & subscription rejection
-  console.log("\n16. Edge cases");
+  // 16. Password change
+  console.log("\n16. Password change");
+
+  const pwChange = await api("/api/auth/change-password", {
+    method: "POST",
+    token,
+    body: { currentPassword: "testpassword123", newPassword: "newpassword456" },
+  });
+  assert(pwChange.status === 200, "Password change returns 200");
+
+  // Login with new password
+  const loginNew = await api("/api/auth/login", {
+    method: "POST",
+    body: { email: "e2e@test.io", password: "newpassword456" },
+  });
+  assert(loginNew.status === 200, "Login with new password works");
+
+  // Old password fails
+  const loginOld = await api("/api/auth/login", {
+    method: "POST",
+    body: { email: "e2e@test.io", password: "testpassword123" },
+  });
+  assert(loginOld.status === 401, "Old password rejected");
+
+  // Wrong current password fails
+  const pwBad = await api("/api/auth/change-password", {
+    method: "POST",
+    token,
+    body: { currentPassword: "wrongpassword", newPassword: "something123" },
+  });
+  assert(pwBad.status === 401, "Wrong current password returns 401");
+
+  // Short new password fails
+  const pwShort = await api("/api/auth/change-password", {
+    method: "POST",
+    token,
+    body: { currentPassword: "newpassword456", newPassword: "short" },
+  });
+  assert(pwShort.status === 400, "Short new password returns 400");
+
+  // 17. Email verification
+  console.log("\n17. Email verification");
+
+  const sendVerify = await api("/api/auth/verify-email/send", {
+    method: "POST",
+    token,
+  });
+  assert(sendVerify.status === 201, "Send verification returns 201");
+  assert(!!sendVerify.data?.token, "Dev mode returns token directly");
+
+  // Confirm with token
+  const confirmVerify = await api("/api/auth/verify-email/confirm", {
+    method: "POST",
+    body: { token: sendVerify.data?.token },
+  });
+  assert(confirmVerify.status === 200, "Email verification confirm returns 200");
+
+  // Check profile shows verified
+  const meAfterVerify = await api("/api/auth/me", { token });
+  assert(meAfterVerify.data?.emailVerified === true, "Profile shows email verified");
+
+  // Already verified
+  const sendAgain = await api("/api/auth/verify-email/send", {
+    method: "POST",
+    token,
+  });
+  assert(sendAgain.status === 409, "Already verified returns 409");
+
+  // Invalid token
+  const badConfirm = await api("/api/auth/verify-email/confirm", {
+    method: "POST",
+    body: { token: "invalid-token" },
+  });
+  assert(badConfirm.status === 404, "Invalid token returns 404");
+
+  // 18. Notifications
+  console.log("\n18. Notifications");
+
+  // Creator should have notifications from subscription + review
+  const notifs = await api("/api/notifications", { token });
+  assert(notifs.status === 200, "GET notifications returns 200");
+  assert(notifs.data?.notifications?.length >= 1, "Has at least 1 notification");
+  assert(typeof notifs.data?.unreadCount === "number", "Has unreadCount");
+
+  // Mark one as read
+  const firstNotif = notifs.data?.notifications?.[0];
+  if (firstNotif) {
+    const markRead = await api(`/api/notifications/${firstNotif.id}/read`, {
+      method: "PATCH",
+      token,
+    });
+    assert(markRead.status === 200, "Mark notification read returns 200");
+  }
+
+  // Mark all as read
+  const markAll = await api("/api/notifications/read-all", {
+    method: "POST",
+    token,
+  });
+  assert(markAll.status === 200, "Mark all read returns 200");
+
+  // Verify unread count is 0
+  const notifsAfter = await api("/api/notifications", { token });
+  assert(notifsAfter.data?.unreadCount === 0, "Unread count is 0 after mark-all");
+
+  // 19. Webhooks
+  console.log("\n19. Webhooks");
+
+  const createWh = await api("/api/notifications/webhooks", {
+    method: "POST",
+    token,
+    body: { url: `${ENGINE}/webhook`, events: ["subscription.created", "review.created"] },
+  });
+  assert(createWh.status === 201, "Create webhook returns 201");
+  assert(!!createWh.data?.id, "Webhook has id");
+  assert(!!createWh.data?.secret, "Webhook returns secret");
+
+  const listWh = await api("/api/notifications/webhooks", { token });
+  assert(listWh.status === 200, "List webhooks returns 200");
+  assert(listWh.data?.webhooks?.length === 1, "Has 1 webhook");
+
+  // Invalid events
+  const badWh = await api("/api/notifications/webhooks", {
+    method: "POST",
+    token,
+    body: { url: `${ENGINE}/webhook`, events: ["invalid.event"] },
+  });
+  assert(badWh.status === 400, "Invalid webhook events returns 400");
+
+  // Delete webhook
+  const delWh = await api(`/api/notifications/webhooks/${createWh.data?.id}`, {
+    method: "DELETE",
+    token,
+  });
+  assert(delWh.status === 200, "Delete webhook returns 200");
+
+  // 20. Billing
+  console.log("\n20. Billing");
+
+  const billing = await api("/api/billing", { token });
+  assert(billing.status === 200, "GET billing returns 200");
+  assert(billing.data?.account?.plan === "free", "Default plan is free");
+  assert(Array.isArray(billing.data?.payments), "Has payments array");
+
+  // Upgrade to pro
+  const upgrade = await api("/api/billing/upgrade", {
+    method: "POST",
+    token,
+    body: { plan: "pro" },
+  });
+  assert(upgrade.status === 200, "Upgrade returns 200");
+  assert(upgrade.data?.plan === "pro", "Plan is now pro");
+
+  // Verify billing shows pro
+  const billingAfter = await api("/api/billing", { token });
+  assert(billingAfter.data?.account?.plan === "pro", "Account shows pro plan");
+  assert(billingAfter.data?.payments?.length >= 1, "Has payment record");
+
+  // Revenue endpoint
+  const revenue = await api("/api/billing/revenue", { token });
+  assert(revenue.status === 200, "Revenue returns 200");
+  assert(Array.isArray(revenue.data?.agents), "Revenue includes agents");
+  assert(typeof revenue.data?.totalEstimatedMonthly === "number", "Revenue includes total");
+
+  // Invalid plan
+  const badPlan = await api("/api/billing/upgrade", {
+    method: "POST",
+    token,
+    body: { plan: "invalid" },
+  });
+  assert(badPlan.status === 400, "Invalid plan returns 400");
+
+  // Connect (mock)
+  const connect = await api("/api/billing/connect", {
+    method: "POST",
+    token,
+  });
+  assert(connect.status === 200, "Connect returns 200");
+  assert(connect.data?.connected === true, "Shows connected");
+
+  // 21. Pagination
+  console.log("\n21. Pagination");
+
+  const page1 = await api("/api/agents?limit=1&offset=0");
+  assert(page1.status === 200, "Paginated list returns 200");
+  assert(page1.data?.agents?.length <= 1, "Respects limit=1");
+  assert(typeof page1.data?.total === "number", "Returns total count");
+  assert(typeof page1.data?.limit === "number", "Returns limit");
+  assert(typeof page1.data?.offset === "number", "Returns offset");
+
+  // 22. Duplicate slug & subscription rejection
+  console.log("\n22. Edge cases");
   const dup = await api("/api/agents", {
     method: "POST",
     token,
