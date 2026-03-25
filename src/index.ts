@@ -35,6 +35,8 @@ interface PriceCache {
   kalshiNoAsk: number;
   polyYesBid: number;
   polyYesAsk: number;
+  kalshiDepthDollars: number;
+  polyDepthDollars: number;
   lastUpdated: number; // Date.now() timestamp for TTL
 }
 
@@ -48,6 +50,7 @@ interface PairRef {
   polyYesTokenId: string;
   kalshiTitle: string;
   polyQuestion: string;
+  polarityInverted: boolean; // LLM-detected: YES on Kalshi = NO on Polymarket
 }
 
 const kalshiTickerToPairs = new Map<string, PairRef[]>();
@@ -119,6 +122,8 @@ async function main() {
         !m.closed &&
         m.enableOrderBook &&
         m.clobTokenIds &&
+        !m.neg_risk && // Exclude multi-outcome markets (YES+NO != 100)
+        parseFloat(m.liquidity || '0') >= 500 && // Minimum liquidity filter
         (m.volume24hr > 0 || parseFloat(m.volume || '0') > 100),
     );
     upsertPolymarketMarkets(db, polyMarkets);
@@ -160,6 +165,12 @@ async function main() {
 
   // --- Step 3: Build lookup maps and initialize price cache ---
   for (const row of allPairs) {
+    // Skip multi-outcome (neg_risk) markets — YES+NO != 100
+    if (row.poly_neg_risk) {
+      logger.debug(`Skipping neg_risk pair ${row.id}`);
+      continue;
+    }
+
     const tokenIds = safeJsonParse(
       row.poly_clob_token_ids || '[]',
       StringArraySchema,
@@ -169,6 +180,11 @@ async function main() {
     const polyYesTokenId = tokenIds[0] || '';
     if (!polyYesTokenId) continue;
 
+    // Detect polarity inversion from LLM notes
+    const polarityInverted =
+      row.resolution_divergence_risk >= 1.0 ||
+      (row.notes?.includes('[POLARITY INVERTED]') ?? false);
+
     const ref: PairRef = {
       pairId: row.id,
       kalshiTicker: row.kalshi_ticker,
@@ -176,6 +192,7 @@ async function main() {
       polyYesTokenId,
       kalshiTitle: row.kalshi_title,
       polyQuestion: row.poly_question,
+      polarityInverted,
     };
 
     const kalshiRefs = kalshiTickerToPairs.get(row.kalshi_ticker) ?? [];
@@ -203,6 +220,9 @@ async function main() {
         polyYesAsk = dollarsToCents(outcomePrices[0]);
       }
 
+      const kalshiLiq = parseFloat(km.liquidity_dollars || '0');
+      const polyLiq = parseFloat(pm.liquidity || '0');
+
       priceCache.set(row.id, {
         kalshiYesBid: kalshiDollarsToCents(km.yes_bid_dollars),
         kalshiYesAsk: kalshiDollarsToCents(km.yes_ask_dollars),
@@ -210,6 +230,8 @@ async function main() {
         kalshiNoAsk: kalshiDollarsToCents(km.no_ask_dollars),
         polyYesBid,
         polyYesAsk,
+        kalshiDepthDollars: kalshiLiq,
+        polyDepthDollars: polyLiq,
         lastUpdated: Date.now(),
       });
     }
@@ -318,20 +340,36 @@ function handlePriceUpdate(
         kalshiNoAsk: 0,
         polyYesBid: 0,
         polyYesAsk: 0,
+        kalshiDepthDollars: 0,
+        polyDepthDollars: 0,
         lastUpdated: Date.now(),
       };
       priceCache.set(ref.pairId, cache);
     }
 
     // Update cache with new prices
+    // If polarity is inverted, swap Polymarket YES↔NO so the arb detector
+    // sees consistent polarity across both platforms
     if (update.platform === 'kalshi') {
       if (update.yesBid !== undefined) cache.kalshiYesBid = update.yesBid;
       if (update.yesAsk !== undefined) cache.kalshiYesAsk = update.yesAsk;
       if (update.noBid !== undefined) cache.kalshiNoBid = update.noBid;
       if (update.noAsk !== undefined) cache.kalshiNoAsk = update.noAsk;
+    } else if (ref.polarityInverted) {
+      // Inverted: Poly YES price → treat as NO, and vice versa
+      if (update.yesBid !== undefined) cache.polyYesBid = 100 - update.yesBid;
+      if (update.yesAsk !== undefined) cache.polyYesAsk = 100 - update.yesAsk;
     } else {
       if (update.yesBid !== undefined) cache.polyYesBid = update.yesBid;
       if (update.yesAsk !== undefined) cache.polyYesAsk = update.yesAsk;
+    }
+    // Update depth if provided
+    if (update.depthDollars !== undefined) {
+      if (update.platform === 'kalshi') {
+        cache.kalshiDepthDollars = update.depthDollars;
+      } else {
+        cache.polyDepthDollars = update.depthDollars;
+      }
     }
     cache.lastUpdated = Date.now();
 
@@ -349,6 +387,8 @@ function handlePriceUpdate(
       kalshiNoAsk: cache.kalshiNoAsk,
       polyYesBid: cache.polyYesBid,
       polyYesAsk: cache.polyYesAsk,
+      kalshiDepthDollars: cache.kalshiDepthDollars,
+      polyDepthDollars: cache.polyDepthDollars,
     };
 
     const arbThresholds: ArbThresholds = {

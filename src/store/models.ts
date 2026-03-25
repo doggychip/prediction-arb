@@ -160,6 +160,7 @@ export interface MarketPairRow {
   kalshi_title: string;
   poly_question: string;
   poly_clob_token_ids: string;
+  poly_neg_risk: number;
 }
 
 export function upsertMarketPair(db: Database.Database, pair: MarketPair): void {
@@ -198,7 +199,8 @@ export function getApprovedPairs(db: Database.Database): MarketPairRow[] {
     .prepare(
       `
     SELECT mp.*, km.title as kalshi_title, pm.question as poly_question,
-           pm.clob_token_ids as poly_clob_token_ids
+           pm.clob_token_ids as poly_clob_token_ids,
+           pm.neg_risk as poly_neg_risk
     FROM market_pairs mp
     JOIN kalshi_markets km ON mp.kalshi_ticker = km.ticker
     JOIN polymarket_markets pm ON mp.polymarket_id = pm.id
@@ -213,11 +215,12 @@ export function getAllPairs(db: Database.Database): MarketPairRow[] {
     .prepare(
       `
     SELECT mp.*, km.title as kalshi_title, pm.question as poly_question,
-           pm.clob_token_ids as poly_clob_token_ids
+           pm.clob_token_ids as poly_clob_token_ids,
+           pm.neg_risk as poly_neg_risk
     FROM market_pairs mp
     JOIN kalshi_markets km ON mp.kalshi_ticker = km.ticker
     JOIN polymarket_markets pm ON mp.polymarket_id = pm.id
-  `,
+`,
     )
     .all() as MarketPairRow[];
 }

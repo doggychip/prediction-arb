@@ -47,6 +47,7 @@ export interface PriceUpdate {
   noBid?: number; // cents
   noAsk?: number; // cents
   lastPrice?: number; // cents
+  depthDollars?: number; // orderbook depth in dollars
   timestamp: string;
 }
 
