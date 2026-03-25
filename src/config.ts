@@ -39,6 +39,13 @@ export interface Config {
 
   // HTTP request timeout
   requestTimeoutMs: number;
+
+  // LLM match verification
+  llmApiKey: string;
+  llmBaseUrl: string;
+  llmModel: string;
+  llmVerifyEnabled: boolean;
+  llmVerifyBatchSize: number;
 }
 
 function getKalshiBaseUrl(env: 'demo' | 'prod'): string {
@@ -89,6 +96,13 @@ export function loadConfig(): Config {
 
     // HTTP request timeout (default 30s)
     requestTimeoutMs: parseInt(process.env.REQUEST_TIMEOUT_MS || '30000', 10),
+
+    // LLM match verification
+    llmApiKey: process.env.LLM_API_KEY || process.env.OPENROUTER_API_KEY || '',
+    llmBaseUrl: process.env.LLM_BASE_URL || 'https://openrouter.ai/api/v1',
+    llmModel: process.env.LLM_MODEL || 'anthropic/claude-haiku-4-5-20251001',
+    llmVerifyEnabled: process.env.LLM_VERIFY_ENABLED !== 'false',
+    llmVerifyBatchSize: parseInt(process.env.LLM_VERIFY_BATCH_SIZE || '10', 10),
   };
 }
 
@@ -100,6 +114,9 @@ export function validateConfig(config: Config): string[] {
   }
   if (!config.discordWebhookUrl) {
     warnings.push('DISCORD_WEBHOOK_URL not set — Discord alerts disabled');
+  }
+  if (!config.llmApiKey && config.llmVerifyEnabled) {
+    warnings.push('LLM_API_KEY not set — LLM match verification disabled');
   }
 
   return warnings;

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import type { KalshiMarket } from '../kalshi/types.js';
 import type { PolymarketMarket } from '../polymarket/types.js';
 import type { MarketPair } from '../types.js';
+import type { VerifiedCandidate } from './llm-verifier.js';
 import { createLogger } from '../logger.js';
 
 const logger = createLogger('matcher');
@@ -210,19 +211,36 @@ export function findMatches(
 
 /**
  * Convert match candidates to MarketPair objects for storage.
+ * Supports both plain MatchCandidate and LLM-VerifiedCandidate.
  */
-export function candidatesToPairs(candidates: MatchCandidate[]): MarketPair[] {
+export function candidatesToPairs(
+  candidates: (MatchCandidate | VerifiedCandidate)[],
+): MarketPair[] {
   const now = new Date().toISOString();
-  return candidates.map((c) => ({
-    id: crypto.randomUUID(),
-    kalshiTicker: c.kalshiMarket.ticker,
-    polymarketId: c.polymarketMarket.id,
-    matchConfidence: c.confidence,
-    resolutionDivergenceRisk: 0,
-    matchMethod: 'string_similarity' as const,
-    status: 'pending_review' as const,
-    notes: `Auto-matched: "${c.kalshiMarket.title}" ↔ "${c.polymarketMarket.question}" (score: ${c.confidence.toFixed(3)})`,
-    createdAt: now,
-    updatedAt: now,
-  }));
+  return candidates.map((c) => {
+    const verified = 'llmVerification' in c ? c.llmVerification : undefined;
+    const matchMethod = verified ? 'llm' : 'string_similarity';
+    const status = verified && verified.confidence >= 0.8 ? 'approved' : 'pending_review';
+
+    let notes = `Auto-matched: "${c.kalshiMarket.title}" ↔ "${c.polymarketMarket.question}" (score: ${c.confidence.toFixed(3)})`;
+    if (verified) {
+      notes += ` | LLM: ${verified.reasoning}`;
+      if (verified.polarityInverted) {
+        notes += ' [POLARITY INVERTED]';
+      }
+    }
+
+    return {
+      id: crypto.randomUUID(),
+      kalshiTicker: c.kalshiMarket.ticker,
+      polymarketId: c.polymarketMarket.id,
+      matchConfidence: c.confidence,
+      resolutionDivergenceRisk: verified?.polarityInverted ? 1.0 : 0,
+      matchMethod: matchMethod as MarketPair['matchMethod'],
+      status: status as MarketPair['status'],
+      notes,
+      createdAt: now,
+      updatedAt: now,
+    };
+  });
 }

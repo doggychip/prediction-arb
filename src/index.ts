@@ -16,6 +16,7 @@ import { KalshiWebSocket } from './kalshi/websocket.js';
 import { PolymarketClient } from './polymarket/client.js';
 import { PolymarketWebSocket } from './polymarket/websocket.js';
 import { findMatches, candidatesToPairs } from './matching/matcher.js';
+import { verifyMatchesWithLlm } from './matching/llm-verifier.js';
 import { analyzeArb, dollarsToCents, type PairPrices, type ArbThresholds } from './arb/detector.js';
 import { sendDiscordAlert } from './alerts/discord.js';
 import type { PriceUpdate } from './types.js';
@@ -139,7 +140,10 @@ async function main() {
   // --- Step 2: Match markets ---
   logger.info('Running market matcher...');
   const candidates = findMatches(kalshiMarkets, polyMarkets, 0.45);
-  const pairs = candidatesToPairs(candidates);
+
+  // --- Step 2.5: LLM verification of matches ---
+  const verifiedCandidates = await verifyMatchesWithLlm(config, candidates);
+  const pairs = candidatesToPairs(verifiedCandidates);
 
   for (const pair of pairs) {
     upsertMarketPair(db, pair);
