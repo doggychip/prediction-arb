@@ -35,7 +35,9 @@ export async function notify(payload: NotificationPayload) {
     .run();
 
   // 2. Fire webhooks (async, non-blocking)
-  fireWebhooks(payload).catch(() => {});
+  fireWebhooks(payload).catch((err) => {
+    console.error(`[notify] Failed to fire webhooks for user ${payload.userId}:`, err);
+  });
 
   return id;
 }

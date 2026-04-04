@@ -28,6 +28,7 @@ sqlite.exec(`
     bio TEXT,
     avatar_url TEXT,
     verified INTEGER DEFAULT 0,
+    email_verified INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
   );
 

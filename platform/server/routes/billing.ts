@@ -5,7 +5,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db } from "../db/index.js";
 import { billingAccounts, payments, agents, subscriptions } from "../../shared/schema.js";
@@ -162,7 +162,10 @@ billingRouter.get("/revenue", requireAuth, async (c) => {
       .select({ count: sql<number>`count(*)` })
       .from(subscriptions)
       .where(
-        eq(subscriptions.agentId, agent.id),
+        and(
+          eq(subscriptions.agentId, agent.id),
+          eq(subscriptions.status, "active")
+        )
       )
       .get();
 

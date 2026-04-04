@@ -72,7 +72,7 @@ export default function AgentDetailPage({ slug, user, onNavigate }: Props) {
 
   // Check if user already reviewed
   const userAlreadyReviewed = user && agent?.reviews?.some(
-    (r: any) => r.userName === user.id // fallback check below
+    (r: any) => r.userId === user.id
   );
   const isOwnAgent = user && agent?.creator?.id === user.id;
 
@@ -197,7 +197,7 @@ export default function AgentDetailPage({ slug, user, onNavigate }: Props) {
         )}
 
         {/* Write a Review */}
-        {user && !isOwnAgent && !reviewSubmitted && (
+        {user && !isOwnAgent && !reviewSubmitted && !userAlreadyReviewed && (
           <div className="mb-8">
             <h2 className="text-lg font-semibold text-white mb-3">Write a Review</h2>
             <form onSubmit={handleReviewSubmit} className="bg-gray-800/50 rounded-lg p-4 space-y-3">

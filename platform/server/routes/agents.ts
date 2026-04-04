@@ -248,10 +248,16 @@ agentsRouter.delete("/:slug", requireAuth, async (c) => {
 agentsRouter.get("/", async (c) => {
   const category = c.req.query("category");
   const search = c.req.query("q");
-  const limit = Math.min(parseInt(c.req.query("limit") || "20"), 100);
-  const offset = parseInt(c.req.query("offset") || "0");
+  const limit = Math.max(1, Math.min(parseInt(c.req.query("limit") || "20") || 20, 100));
+  const offset = Math.max(0, parseInt(c.req.query("offset") || "0") || 0);
 
-  let query = db
+  // Build filter conditions
+  const conditions = [eq(agents.status, "active")];
+  if (category) conditions.push(eq(agents.category, category));
+  if (search) conditions.push(like(agents.name, `%${search}%`));
+  const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions)!;
+
+  const results = db
     .select({
       id: agents.id,
       name: agents.name,
@@ -272,38 +278,18 @@ agentsRouter.get("/", async (c) => {
     })
     .from(agents)
     .innerJoin(creators, eq(agents.creatorId, creators.id))
-    .where(eq(agents.status, "active"))
+    .where(whereClause)
     .orderBy(desc(agents.createdAt))
     .limit(limit)
-    .offset(offset);
+    .offset(offset)
+    .all();
 
-  // Apply filters
-  if (category) {
-    query = query.where(
-      and(eq(agents.status, "active"), eq(agents.category, category))
-    ) as typeof query;
-  }
-
-  if (search) {
-    query = query.where(
-      and(eq(agents.status, "active"), like(agents.name, `%${search}%`))
-    ) as typeof query;
-  }
-
-  const results = query.all();
-
-  // Get total count for pagination
-  let totalCount: number;
-  if (category) {
-    totalCount = db.select({ count: sql<number>`count(*)` }).from(agents)
-      .where(and(eq(agents.status, "active"), eq(agents.category, category))).get()?.count || 0;
-  } else if (search) {
-    totalCount = db.select({ count: sql<number>`count(*)` }).from(agents)
-      .where(and(eq(agents.status, "active"), like(agents.name, `%${search}%`))).get()?.count || 0;
-  } else {
-    totalCount = db.select({ count: sql<number>`count(*)` }).from(agents)
-      .where(eq(agents.status, "active")).get()?.count || 0;
-  }
+  // Get total count for pagination (same filters, no limit/offset)
+  const totalCount = db
+    .select({ count: sql<number>`count(*)` })
+    .from(agents)
+    .where(whereClause)
+    .get()?.count || 0;
 
   // Enrich with subscriber count and avg rating
   const enriched = results.map((agent) => {
@@ -397,6 +383,7 @@ agentsRouter.get("/:slug", async (c) => {
   const agentReviews = db
     .select({
       id: reviews.id,
+      userId: reviews.userId,
       rating: reviews.rating,
       comment: reviews.comment,
       createdAt: reviews.createdAt,
@@ -434,6 +421,16 @@ agentsRouter.post("/", requireAuth, async (c) => {
       { error: "Missing required fields", code: "VALIDATION" },
       400
     );
+  }
+
+  // Validate URLs
+  try { new URL(body.endpointUrl); } catch {
+    return c.json({ error: "Invalid endpoint URL", code: "VALIDATION" }, 400);
+  }
+  if (body.healthCheckUrl) {
+    try { new URL(body.healthCheckUrl); } catch {
+      return c.json({ error: "Invalid health check URL", code: "VALIDATION" }, 400);
+    }
   }
 
   // Check slug uniqueness
@@ -495,15 +492,33 @@ agentsRouter.patch("/:slug", requireAuth, async (c) => {
 
   const body = await c.req.json<Partial<PublishAgentRequest>>();
 
+  // Validate URLs if provided
+  if (body.endpointUrl) {
+    try { new URL(body.endpointUrl); } catch {
+      return c.json({ error: "Invalid endpoint URL", code: "VALIDATION" }, 400);
+    }
+  }
+  if (body.healthCheckUrl) {
+    try { new URL(body.healthCheckUrl); } catch {
+      return c.json({ error: "Invalid health check URL", code: "VALIDATION" }, 400);
+    }
+  }
+  if (body.pricePerCall !== undefined && body.pricePerCall < 0) {
+    return c.json({ error: "Price per call cannot be negative", code: "VALIDATION" }, 400);
+  }
+  if (body.monthlyPrice !== undefined && body.monthlyPrice < 0) {
+    return c.json({ error: "Monthly price cannot be negative", code: "VALIDATION" }, 400);
+  }
+
   const updates: Record<string, unknown> = {};
   if (body.name) updates.name = body.name;
   if (body.description) updates.description = body.description;
-  if (body.longDescription) updates.longDescription = body.longDescription;
+  if (body.longDescription !== undefined) updates.longDescription = body.longDescription;
   if (body.category) updates.category = body.category;
   if (body.tags) updates.tags = JSON.stringify(body.tags);
   if (body.endpointUrl) updates.endpointUrl = body.endpointUrl;
-  if (body.healthCheckUrl) updates.healthCheckUrl = body.healthCheckUrl;
-  if (body.docsUrl) updates.docsUrl = body.docsUrl;
+  if (body.healthCheckUrl !== undefined) updates.healthCheckUrl = body.healthCheckUrl;
+  if (body.docsUrl !== undefined) updates.docsUrl = body.docsUrl;
   if (body.pricing) updates.pricing = body.pricing;
   if (body.pricePerCall !== undefined) updates.pricePerCall = body.pricePerCall;
   if (body.monthlyPrice !== undefined) updates.monthlyPrice = body.monthlyPrice;

@@ -50,8 +50,8 @@ export default function ProfilePage({ user, onUserUpdate }: Props) {
       setBio(p.bio || "");
     }).catch(() => setError("Failed to load profile"));
 
-    agentsApi.list().then((data) => {
-      setMyAgents(data.agents.filter((a: any) => a.creatorId === user.id));
+    agentsApi.mine().then((data) => {
+      setMyAgents(data.agents);
     }).catch(() => {});
   }, [user.id]);
 
