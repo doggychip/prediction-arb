@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { subscriptionsApi, keysApi, agentsApi } from "../lib/api";
+import { subscriptionsApi, keysApi, agentsApi, notificationsApi } from "../lib/api";
 
 const CATEGORIES = ["trading", "analysis", "data", "automation", "nlp", "vision", "other"];
 
@@ -14,9 +14,15 @@ export default function DashboardPage({ user, onNavigate }: Props) {
   const [myAgents, setMyAgents] = useState<any[]>([]);
   const [newKeyName, setNewKeyName] = useState("");
   const [createdKey, setCreatedKey] = useState<string | null>(null);
-  const [tab, setTab] = useState<"agents" | "subs" | "keys">("agents");
+  const [tab, setTab] = useState<"agents" | "subs" | "keys" | "webhooks">("agents");
   const [usageSlug, setUsageSlug] = useState<string | null>(null);
   const [usage, setUsage] = useState<any>(null);
+
+  // Webhooks
+  const [webhooks, setWebhooks] = useState<any[]>([]);
+  const [newWhUrl, setNewWhUrl] = useState("");
+  const [newWhEvents, setNewWhEvents] = useState<string[]>(["subscription.created", "review.created", "health.changed"]);
+  const [createdWhSecret, setCreatedWhSecret] = useState<string | null>(null);
 
   // Edit state
   const [editSlug, setEditSlug] = useState<string | null>(null);
@@ -28,6 +34,7 @@ export default function DashboardPage({ user, onNavigate }: Props) {
     agentsApi.mine().then((d) => setMyAgents(d.agents)).catch(() => {});
     subscriptionsApi.list().then((d) => setSubs(d.subscriptions)).catch(() => {});
     keysApi.list().then((d) => setKeys(d.keys)).catch(() => {});
+    notificationsApi.listWebhooks().then((d) => setWebhooks(d.webhooks)).catch(() => {});
   }, []);
 
   async function createKey() {
@@ -177,6 +184,9 @@ export default function DashboardPage({ user, onNavigate }: Props) {
         </button>
         <button onClick={() => setTab("keys")} className={tabClass("keys")}>
           API Keys ({keys.length})
+        </button>
+        <button onClick={() => setTab("webhooks")} className={tabClass("webhooks")}>
+          Webhooks ({webhooks.length})
         </button>
       </div>
 
@@ -564,6 +574,99 @@ export default function DashboardPage({ user, onNavigate }: Props) {
                   className="text-sm text-red-400 hover:text-red-300 transition"
                 >
                   Revoke
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Webhooks */}
+      {tab === "webhooks" && (
+        <div>
+          <div className="mb-6 space-y-3">
+            <div className="flex gap-2">
+              <input
+                type="url"
+                value={newWhUrl}
+                onChange={(e) => setNewWhUrl(e.target.value)}
+                placeholder="https://your-server.com/webhook"
+                className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+              />
+              <button
+                onClick={async () => {
+                  if (!newWhUrl) return;
+                  try {
+                    const res = await notificationsApi.createWebhook({ url: newWhUrl, events: newWhEvents });
+                    setCreatedWhSecret(res.secret);
+                    setNewWhUrl("");
+                    notificationsApi.listWebhooks().then((d) => setWebhooks(d.webhooks));
+                  } catch {}
+                }}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm transition"
+              >
+                Add Webhook
+              </button>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {["subscription.created", "review.created", "health.changed"].map((evt) => (
+                <button
+                  key={evt}
+                  onClick={() =>
+                    setNewWhEvents((prev) =>
+                      prev.includes(evt) ? prev.filter((e) => e !== evt) : [...prev, evt]
+                    )
+                  }
+                  className={`text-xs px-3 py-1 rounded-full transition ${
+                    newWhEvents.includes(evt)
+                      ? "bg-indigo-600 text-white"
+                      : "bg-gray-800 text-gray-400"
+                  }`}
+                >
+                  {evt}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {createdWhSecret && (
+            <div className="bg-green-900/20 border border-green-700 rounded-lg p-4 mb-6">
+              <p className="text-sm text-green-400 mb-2">
+                Webhook created! Save this signing secret — you won't see it again.
+              </p>
+              <code className="text-sm text-green-300 bg-gray-950 px-3 py-2 rounded block break-all">
+                {createdWhSecret}
+              </code>
+            </div>
+          )}
+
+          <div className="space-y-3">
+            {webhooks.length === 0 && (
+              <p className="text-gray-500">No webhooks configured. Add one to receive real-time notifications.</p>
+            )}
+            {webhooks.map((wh) => (
+              <div
+                key={wh.id}
+                className="bg-gray-900 border border-gray-800 rounded-lg p-4 flex items-center justify-between"
+              >
+                <div>
+                  <span className="text-white text-sm font-mono">{wh.url}</span>
+                  <div className="flex gap-1 mt-1">
+                    {(wh.events || []).map((e: string) => (
+                      <span key={e} className="text-[10px] bg-gray-800 text-gray-500 px-2 py-0.5 rounded">
+                        {e}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    await notificationsApi.deleteWebhook(wh.id);
+                    setWebhooks(webhooks.filter((w) => w.id !== wh.id));
+                  }}
+                  className="text-sm text-red-400 hover:text-red-300 transition"
+                >
+                  Delete
                 </button>
               </div>
             ))}

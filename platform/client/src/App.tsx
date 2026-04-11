@@ -7,6 +7,7 @@ import DashboardPage from "./pages/DashboardPage";
 import PublishPage from "./pages/PublishPage";
 import LoginPage from "./pages/LoginPage";
 import ProfilePage from "./pages/ProfilePage";
+import BillingPage from "./pages/BillingPage";
 
 type Page =
   | { name: "home" }
@@ -14,6 +15,7 @@ type Page =
   | { name: "dashboard" }
   | { name: "publish" }
   | { name: "profile" }
+  | { name: "billing" }
   | { name: "login" };
 
 export default function App() {
@@ -77,10 +79,13 @@ export default function App() {
             localStorage.setItem("user", JSON.stringify(u));
           }} />
         )}
+        {page.name === "billing" && user && (
+          <BillingPage user={user} />
+        )}
         {page.name === "login" && (
           <LoginPage onLogin={handleLogin} />
         )}
-        {(page.name === "dashboard" || page.name === "publish" || page.name === "profile") && !user && (
+        {(page.name === "dashboard" || page.name === "publish" || page.name === "profile" || page.name === "billing") && !user && (
           <LoginPage onLogin={handleLogin} />
         )}
       </main>

@@ -47,6 +47,7 @@ async function seed() {
   const agent2Id = nanoid();
   const agent3Id = nanoid();
   const agent4Id = nanoid();
+  const agent5Id = nanoid();
 
   db.insert(agents)
     .values([
@@ -119,6 +120,45 @@ async function seed() {
         rateLimit: 20,
         version: "1.3.0",
       },
+      {
+        id: agent5Id,
+        creatorId: creator1Id,
+        name: "Last 30 Days",
+        slug: "last-30-days",
+        description:
+          "Aggregates recent information about any topic from 13+ sources (Reddit, X, YouTube, Polymarket, HN, GitHub) ranked by engagement.",
+        longDescription:
+          "Searches across Reddit (with comment threads), X/Twitter, YouTube (with full transcripts), TikTok, Hacker News, Polymarket, GitHub, and more. Cross-source deduplication merges the same story appearing on multiple platforms. Returns engagement-ranked summaries with citations and 'Best Takes' highlighting viral/witty comments.\n\nBased on the open-source last30days-skill (github.com/mvanhorn/last30days-skill).",
+        category: "data",
+        tags: JSON.stringify(["research", "aggregation", "reddit", "twitter", "youtube", "polymarket", "hackernews"]),
+        endpointUrl: "http://localhost:3003/api/search",
+        healthCheckUrl: "http://localhost:3003/health",
+        pricing: "usage",
+        pricePerCall: 0.02,
+        status: "active",
+        rateLimit: 30,
+        version: "3.0.0",
+        schema: JSON.stringify({
+          input: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "Topic to research" },
+              sources: { type: "array", items: { type: "string" }, description: "Sources to search (optional, defaults to all)" },
+              days: { type: "number", description: "Number of days to look back (default: 30)" },
+            },
+            required: ["query"],
+          },
+          output: {
+            type: "object",
+            properties: {
+              summary: { type: "string" },
+              sources: { type: "array" },
+              bestTakes: { type: "array" },
+              clusters: { type: "array" },
+            },
+          },
+        }),
+      },
     ])
     .run();
 
@@ -150,7 +190,7 @@ async function seed() {
     ])
     .run();
 
-  console.log("Seeded: 3 creators, 4 agents, 2 subscriptions, 2 reviews");
+  console.log("Seeded: 3 creators, 5 agents, 2 subscriptions, 2 reviews");
   console.log("\nDemo login: demo@example.com / password123");
 }
 
