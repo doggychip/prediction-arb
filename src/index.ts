@@ -49,7 +49,7 @@ const kalshiTickerToPairs = new Map<string, PairRef[]>();
 const polyTokenToPairs = new Map<string, PairRef[]>();
 
 let statsOppsFound = 0;
-let statsAlertssSent = 0;
+let statsAlertsSent = 0;
 let statsSuppressed = 0;
 
 // Alert cooldown: pairId -> { lastAlertTime, lastNetSpread }
@@ -233,7 +233,7 @@ async function main() {
   const STATS_INTERVAL_MS = 60_000;
   setInterval(() => {
     logger.info(
-      `[Stats] Pairs: ${allPairs.length} | Opps found: ${statsOppsFound} | Alerts sent: ${statsAlertssSent} | ` +
+      `[Stats] Pairs: ${allPairs.length} | Opps found: ${statsOppsFound} | Alerts sent: ${statsAlertsSent} | ` +
       `Suppressed: ${statsSuppressed} | Cache size: ${priceCache.size}`,
     );
   }, STATS_INTERVAL_MS);
@@ -295,7 +295,7 @@ function handlePriceUpdate(
     }
 
     // Skip if we don't have prices from both sides
-    if (cache.kalshiYesAsk === 0 || cache.polyYesBid === 0) return;
+    if (cache.kalshiYesAsk === 0 || cache.polyYesBid === 0) continue;
 
     // Run arb detection
     const prices: PairPrices = {
@@ -356,7 +356,7 @@ function handlePriceUpdate(
           ref.kalshiTitle,
           ref.polyQuestion,
         ).then(() => {
-          statsAlertssSent++;
+          statsAlertsSent++;
         }).catch(() => {
           // Already logged inside sendDiscordAlert
         });
