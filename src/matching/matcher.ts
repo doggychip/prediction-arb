@@ -84,6 +84,61 @@ export interface MatchCandidate {
   confidence: number;
 }
 
+export interface CollisionInput {
+  kalshiTicker: string;
+  kalshiEventTicker: string;
+  polymarketId: string;
+}
+
+export interface CollisionGroup {
+  polymarketId: string;
+  eventTicker: string;
+  kalshiTickers: string[];
+}
+
+/**
+ * Detect (polymarket_id, kalshi event_ticker) collisions: pairs where 2+
+ * Kalshi tickers from the same event_ticker prefix all map to the same
+ * Polymarket market. These are N parallel candidate binaries collapsing
+ * onto one binary — definitionally not the same proposition.
+ *
+ * Returns the colliding groups (for logging) and a Set of dropped pair
+ * keys formatted as "kalshiTicker::polymarketId".
+ */
+export function detectCollisions(items: CollisionInput[]): {
+  collisionGroups: CollisionGroup[];
+  droppedPairKeys: Set<string>;
+} {
+  const groups = new Map<string, CollisionInput[]>();
+  for (const item of items) {
+    const k = `${item.polymarketId}::${item.kalshiEventTicker}`;
+    let arr = groups.get(k);
+    if (!arr) {
+      arr = [];
+      groups.set(k, arr);
+    }
+    arr.push(item);
+  }
+
+  const collisionGroups: CollisionGroup[] = [];
+  const droppedPairKeys = new Set<string>();
+
+  for (const group of groups.values()) {
+    if (group.length >= 2) {
+      collisionGroups.push({
+        polymarketId: group[0].polymarketId,
+        eventTicker: group[0].kalshiEventTicker,
+        kalshiTickers: group.map((g) => g.kalshiTicker),
+      });
+      for (const g of group) {
+        droppedPairKeys.add(`${g.kalshiTicker}::${g.polymarketId}`);
+      }
+    }
+  }
+
+  return { collisionGroups, droppedPairKeys };
+}
+
 /**
  * Find potential market pair matches between Kalshi and Polymarket markets.
  * 
@@ -162,19 +217,46 @@ export function findMatches(
   // Sort by confidence descending
   candidates.sort((a, b) => b.confidence - a.confidence);
 
+  // Drop multi-candidate collisions (PLAN step 2.5):
+  // 2+ Kalshi tickers sharing the same event_ticker that all picked the
+  // same Polymarket market are structurally not the same proposition.
+  const { collisionGroups, droppedPairKeys } = detectCollisions(
+    candidates.map((c) => ({
+      kalshiTicker: c.kalshiMarket.ticker,
+      kalshiEventTicker: c.kalshiMarket.event_ticker,
+      polymarketId: c.polymarketMarket.id,
+    })),
+  );
+
+  if (collisionGroups.length > 0) {
+    logger.warn(
+      `Dropping ${droppedPairKeys.size} candidates from ${collisionGroups.length} multi-candidate event/poly collisions`,
+    );
+    for (const g of collisionGroups) {
+      logger.warn(
+        `  Collision: polymarket=${g.polymarketId} event=${g.eventTicker} kalshi_tickers=[${g.kalshiTickers.join(', ')}]`,
+      );
+    }
+  }
+
+  const filtered = candidates.filter(
+    (c) => !droppedPairKeys.has(`${c.kalshiMarket.ticker}::${c.polymarketMarket.id}`),
+  );
+
   const elapsed = Date.now() - startTime;
   logger.info(
-    `Found ${candidates.length} match candidates (scored ${pairsScored} pairs in ${elapsed}ms)`
+    `Found ${filtered.length} match candidates after collision filter ` +
+      `(scored ${pairsScored} pairs, dropped ${candidates.length - filtered.length}, ${elapsed}ms)`,
   );
 
   // Log top matches for visibility
-  for (const c of candidates.slice(0, 20)) {
+  for (const c of filtered.slice(0, 20)) {
     logger.info(
       `  Match (${(c.confidence * 100).toFixed(1)}%): "${c.kalshiMarket.title}" ↔ "${c.polymarketMarket.question}"`
     );
   }
 
-  return candidates;
+  return filtered;
 }
 
 /**

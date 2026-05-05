@@ -181,7 +181,7 @@ export function getApprovedPairs(db: Database.Database): any[] {
     FROM market_pairs mp
     JOIN kalshi_markets km ON mp.kalshi_ticker = km.ticker
     JOIN polymarket_markets pm ON mp.polymarket_id = pm.id
-    WHERE mp.status IN ('approved', 'pending_review')
+    WHERE mp.status = 'approved'
   `).all();
 }
 

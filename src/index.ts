@@ -141,8 +141,9 @@ async function main() {
 
   // Load all pairs (including previously approved ones)
   const allPairs = getApprovedPairs(db);
+  logger.info(`Loaded ${allPairs.length} approved pairs from DB`);
   if (allPairs.length === 0) {
-    logger.warn('No market pairs found. The engine will wait for matches. Consider lowering the confidence threshold or adding manual pairs.');
+    logger.warn('No approved pairs found. Engine will idle. Run scripts/promote-clean-pairs.ts to promote pending pairs to approved.');
   }
 
   // --- Step 3: Build lookup maps and initialize price cache ---
